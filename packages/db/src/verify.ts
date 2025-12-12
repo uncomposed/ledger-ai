@@ -17,6 +17,7 @@ async function main() {
   const required = [
     "EventOutbox_publishedAt_idx",
     "EventLog_entityId_occurredAt_idx",
+    "EventLog_outboxId_key",
     "Task_entityId_state_idx",
     "ChangeSet_entityId_state_idx",
   ];

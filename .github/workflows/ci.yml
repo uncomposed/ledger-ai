@@ -31,6 +31,7 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
       - run: pnpm -r lint
       - run: pnpm -r typecheck
       - run: pnpm -r test
@@ -67,6 +68,7 @@ jobs:
       - run: pnpm db:migrate:deploy
       - run: pnpm db:seed:ci
       - run: pnpm db:verify
+      - run: pnpm -C packages/db test:integration
 
   event_schema_validate:
     name: event_schema_validate

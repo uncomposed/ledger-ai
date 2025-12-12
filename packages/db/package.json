@@ -12,6 +12,7 @@
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"process.exit(0)\"",
+    "test:integration": "node --test --loader tsx src/test/outbox-idempotency.test.ts",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed:ci": "node --loader tsx prisma/seed/ci.ts",

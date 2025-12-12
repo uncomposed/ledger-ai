@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@ledger/db";
+import type { Prisma, PrismaClient } from "@prisma/client";
 
 export async function publishOutboxOnce(
   prisma: PrismaClient,
@@ -13,14 +13,17 @@ export async function publishOutboxOnce(
   for (const row of rows) {
     try {
       await prisma.$transaction([
-        prisma.eventLog.create({
-          data: {
+        prisma.eventLog.upsert({
+          where: { outboxId: row.id },
+          create: {
+            outboxId: row.id,
             entityId: row.entityId,
             eventType: row.eventType,
             eventVersion: row.eventVersion,
             occurredAt: row.occurredAt,
-            payload: row.payload,
+            payload: row.payload as Prisma.InputJsonValue,
           },
+          update: {},
         }),
         prisma.eventOutbox.update({
           where: { id: row.id },

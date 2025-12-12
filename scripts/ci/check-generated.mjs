@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 const path = new URL("../../packages/events/generated/index.ts", import.meta.url);
 
@@ -10,7 +12,10 @@ try {
   before = "";
 }
 
-execSync("pnpm -C packages/events events:codegen", { stdio: "inherit" });
+const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
+const eventsDir = join(repoRoot, "packages/events");
+
+execSync(`pnpm -C "${eventsDir}" events:codegen`, { stdio: "inherit" });
 
 let after = "";
 try {

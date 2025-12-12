@@ -24,6 +24,7 @@ model EventOutbox {
 
 model EventLog {
   id           String   @id @default(uuid())
+  outboxId     String   @unique
   entityId     String
   eventType    String
   eventVersion Int
@@ -58,4 +59,3 @@ model ChangeSet {
 
   @@index([entityId, state])
 }
-
