@@ -1,0 +1,5 @@
+{
+  "service": "ledger-platform",
+  "env": "local"
+}
+

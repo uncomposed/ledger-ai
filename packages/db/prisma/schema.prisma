@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model EventOutbox {
+  id           String   @id @default(uuid())
+  entityId     String
+  eventType    String
+  eventVersion Int
+  occurredAt   DateTime
+  payload      Json
+  createdAt    DateTime @default(now())
+  publishedAt  DateTime?
+  publishError String?
+
+  @@index([publishedAt])
+  @@index([entityId, occurredAt])
+}
+
+model EventLog {
+  id           String   @id @default(uuid())
+  entityId     String
+  eventType    String
+  eventVersion Int
+  occurredAt   DateTime
+  payload      Json
+  appendedAt   DateTime @default(now())
+
+  @@index([entityId, occurredAt])
+}
+
+model Task {
+  id        String   @id @default(uuid())
+  entityId  String
+  type      String
+  state     String
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([entityId, state])
+}
+
+model ChangeSet {
+  id          String   @id @default(uuid())
+  entityId    String
+  state       String
+  baseType    String
+  baseVersion Int
+  riskLevel   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([entityId, state])
+}
+

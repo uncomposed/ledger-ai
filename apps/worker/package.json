@@ -1,0 +1,19 @@
+{
+  "name": "@ledger/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"process.exit(0)\"",
+    "dev": "node --loader tsx src/index.ts"
+  },
+  "dependencies": {
+    "@ledger/db": "workspace:*",
+    "@ledger/observability": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

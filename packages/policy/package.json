@@ -1,0 +1,20 @@
+{
+  "name": "@ledger/policy",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "lint": "node -e \"process.exit(0)\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --loader tsx src/test/policy.test.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
