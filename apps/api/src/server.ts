@@ -5,6 +5,7 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { strictSerializerCompiler, strictValidatorCompiler, zStrictObject } from "./http/zod.js";
+import { enforceRouteSchemas } from "./http/strict-routes.js";
 
 export async function startServer(): Promise<void> {
   const port = Number(process.env.PORT ?? "3000");
@@ -17,6 +18,7 @@ export async function startServer(): Promise<void> {
     },
   }).withTypeProvider<ZodTypeProvider>();
 
+  enforceRouteSchemas(app);
   app.setValidatorCompiler(strictValidatorCompiler);
   app.setSerializerCompiler(strictSerializerCompiler);
 
