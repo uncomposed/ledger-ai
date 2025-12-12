@@ -1,5 +1,11 @@
 .env
 .env.*
+node_modules/
+.pnpm-store/
+.cache/
+.corepack/
+dist/
+.tmp/
 *.pem
 *.key
 *.p12

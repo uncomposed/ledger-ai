@@ -1,0 +1,23 @@
+{
+  "name": "ledger-platform",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm -C packages/db db:generate",
+    "db:migrate:deploy": "pnpm -C packages/db db:migrate:deploy",
+    "db:seed:ci": "pnpm -C packages/db db:seed:ci",
+    "db:verify": "pnpm -C packages/db db:verify",
+    "events:validate": "pnpm -C packages/events events:validate",
+    "events:codegen": "pnpm -C packages/events events:codegen",
+    "events:codegen:check": "pnpm -C packages/events events:codegen:check",
+    "policy:test": "pnpm -C packages/policy test",
+    "ci:danger": "node scripts/ci/dangerous-change-detector.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "typescript": "^5.6.3"
+  }
+}

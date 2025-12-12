@@ -1,0 +1,20 @@
+{
+  "$id": "task.created.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "created_by_actor_id", "produced"],
+  "properties": {
+    "task_id": { "type": "string", "format": "uuid" },
+    "created_by_actor_id": { "type": "string", "format": "uuid" },
+    "produced": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changeset_ids"],
+      "properties": {
+        "answer_id": { "type": ["string", "null"], "format": "uuid" },
+        "changeset_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+      }
+    }
+  }
+}
+
