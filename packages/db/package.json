@@ -19,6 +19,7 @@
     "db:verify": "node --loader tsx src/verify.ts"
   },
   "dependencies": {
+    "@ledger/events": "workspace:*",
     "@prisma/client": "^5.19.1"
   },
   "devDependencies": {

@@ -47,3 +47,48 @@ test("outbox retry does not duplicate event_log rows", async () => {
   const outboxAfter = await prisma.eventOutbox.findUniqueOrThrow({ where: { id: outbox.id } });
   assert.notEqual(outboxAfter.publishedAt, null);
 });
+
+test("crash window after append is safe on retry", async () => {
+  mustEnv("DATABASE_URL");
+
+  await prisma.eventLog.deleteMany({});
+  await prisma.eventOutbox.deleteMany({});
+
+  const outbox = await prisma.eventOutbox.create({
+    data: {
+      entityId: "00000000-0000-0000-0000-000000000001",
+      eventType: "task.created.v1",
+      eventVersion: 1,
+      occurredAt: new Date(),
+      payload: {
+        task_id: "00000000-0000-0000-0000-000000000011",
+        created_by_actor_id: "00000000-0000-0000-0000-000000000021",
+        produced: { changeset_ids: [] },
+      },
+    },
+  });
+
+  await assert.rejects(
+    publishOutboxOnce(prisma, {
+      limit: 25,
+      workerId: "t1",
+      leaseSeconds: 0,
+      crashAfterAppendOutboxId: outbox.id,
+    }),
+    /failpoint: crash after append/,
+  );
+
+  const logsAfterCrash = await prisma.eventLog.findMany({ where: { outboxId: outbox.id } });
+  assert.equal(logsAfterCrash.length, 1);
+
+  const outboxAfterCrash = await prisma.eventOutbox.findUniqueOrThrow({ where: { id: outbox.id } });
+  assert.equal(outboxAfterCrash.publishedAt, null);
+
+  await publishOutboxOnce(prisma, { limit: 25, workerId: "t2", leaseSeconds: 0 });
+
+  const logsAfterRetry = await prisma.eventLog.findMany({ where: { outboxId: outbox.id } });
+  assert.equal(logsAfterRetry.length, 1);
+
+  const outboxAfterRetry = await prisma.eventOutbox.findUniqueOrThrow({ where: { id: outbox.id } });
+  assert.notEqual(outboxAfterRetry.publishedAt, null);
+});

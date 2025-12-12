@@ -15,7 +15,11 @@ try {
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 const eventsDir = join(repoRoot, "packages/events");
 
-execSync(`pnpm -C "${eventsDir}" events:codegen`, { stdio: "inherit" });
+const env = { ...process.env };
+env.COREPACK_HOME ??= join(repoRoot, ".corepack");
+env.XDG_CACHE_HOME ??= join(repoRoot, ".cache");
+
+execSync(`pnpm -C "${eventsDir}" events:codegen`, { stdio: "inherit", env });
 
 let after = "";
 try {

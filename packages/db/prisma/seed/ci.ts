@@ -1,4 +1,5 @@
 import { prisma } from "../../src/client.js";
+import { emitOutboxEvent } from "../../src/events/emit.js";
 
 async function main() {
   const entityId = "00000000-0000-0000-0000-000000000001";
@@ -23,14 +24,12 @@ async function main() {
     },
   });
 
-  await prisma.eventOutbox.create({
-    data: {
-      entityId,
-      eventType: "task.created.v1",
-      eventVersion: 1,
-      occurredAt: new Date(),
-      payload: { task_id: entityId, created_by_actor_id: actorId, produced: { changeset_ids: [] } },
-    },
+  await emitOutboxEvent(prisma, {
+    entityId,
+    eventType: "task.created.v1",
+    eventVersion: 1,
+    occurredAt: new Date(),
+    payload: { task_id: entityId, created_by_actor_id: actorId, produced: { changeset_ids: [] } },
   });
 }
 

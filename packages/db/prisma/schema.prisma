@@ -17,8 +17,12 @@ model EventOutbox {
   createdAt    DateTime @default(now())
   publishedAt  DateTime?
   publishError String?
+  claimedAt    DateTime?
+  claimedBy    String?
+  leaseUntil   DateTime?
 
   @@index([publishedAt])
+  @@index([leaseUntil])
   @@index([entityId, occurredAt])
 }
 
