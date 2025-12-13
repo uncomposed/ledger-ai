@@ -4,5 +4,7 @@ export { publishOutboxOnce } from "./outbox/publish.js";
 export { emitOutboxEvent } from "./events/emit.js";
 export { createTask, transitionTaskState } from "./commands/task.js";
 export { proposeChangeSet, applyChangeSet } from "./commands/changeset.js";
+export { addMembership, changeMembershipRole } from "./commands/membership.js";
+export { createEntity } from "./commands/entity.js";
 export { ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
 export { resolveActorContext } from "./auth/resolve.js";

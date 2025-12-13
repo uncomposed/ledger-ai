@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 import { assertEventPayload, type EventType } from "@ledger/events";
 
 export async function emitOutboxEvent(
-  prisma: PrismaClient,
+  prisma: PrismaClient | Prisma.TransactionClient,
   args: {
     entityId: string;
     correlationId: string;

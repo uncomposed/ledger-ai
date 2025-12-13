@@ -1,0 +1,15 @@
+{
+  "$id": "membership.added.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "membership_id", "entity_id", "actor_id", "role", "added_by_actor_id"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "membership_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "actor_id": { "type": "string", "format": "uuid" },
+    "role": { "type": "string", "enum": ["admin", "contributor", "accountable"] },
+    "added_by_actor_id": { "type": "string", "format": "uuid" }
+  }
+}
+

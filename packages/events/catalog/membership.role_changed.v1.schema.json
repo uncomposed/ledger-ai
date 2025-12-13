@@ -1,0 +1,16 @@
+{
+  "$id": "membership.role_changed.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "membership_id", "entity_id", "actor_id", "from_role", "to_role", "changed_by_actor_id"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "membership_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "actor_id": { "type": "string", "format": "uuid" },
+    "from_role": { "type": "string", "enum": ["admin", "contributor", "accountable"] },
+    "to_role": { "type": "string", "enum": ["admin", "contributor", "accountable"] },
+    "changed_by_actor_id": { "type": "string", "format": "uuid" }
+  }
+}
+

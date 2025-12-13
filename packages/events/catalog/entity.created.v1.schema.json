@@ -1,0 +1,12 @@
+{
+  "$id": "entity.created.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "entity_id", "created_by_actor_id"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "created_by_actor_id": { "type": "string", "format": "uuid" }
+  }
+}
+
