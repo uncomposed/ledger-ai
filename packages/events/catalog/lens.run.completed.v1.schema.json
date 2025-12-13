@@ -1,0 +1,16 @@
+{
+  "$id": "lens.run.completed.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "lens_run_id", "entity_id", "track_id", "lens_key", "status"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "lens_run_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "track_id": { "type": "string", "format": "uuid" },
+    "lens_key": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["succeeded", "failed"] },
+    "error": { "type": ["string", "null"] }
+  }
+}
+
