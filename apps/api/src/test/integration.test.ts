@@ -897,6 +897,10 @@ test("meal goal planning produces a plan changeset and applying it creates tasks
 
   await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-plan2", leaseSeconds: 0 });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-plan-buy-complete", eventType: "inventory.delta.applied.v1" } });
+  const deltaLogs = await prisma.eventLog.findMany({
+    where: { correlationId: "corr-plan-buy-complete", eventType: "inventory.delta.applied.v1" },
+  });
+  assert.equal(deltaLogs.length, 1);
 
   await app.close();
 });
@@ -1009,6 +1013,9 @@ test("non-admin completion creates pending inventory delta changeset", async () 
   await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-nonadmin", leaseSeconds: 0 });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-na-complete", eventType: "changeset.proposed.v1" } });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-na-apply", eventType: "inventory.delta.applied.v1" } });
+  await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-nonadmin2", leaseSeconds: 0 });
+  const appliedLogs = await prisma.eventLog.findMany({ where: { correlationId: "corr-na-apply", eventType: "inventory.delta.applied.v1" } });
+  assert.equal(appliedLogs.length, 1);
 
   await app.close();
 });

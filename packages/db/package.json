@@ -12,7 +12,7 @@
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node ../../scripts/run-tsx.mjs --test src/test/patch-registry.test.ts",
-    "test:integration": "node ../../scripts/run-tsx.mjs --test src/test/outbox-idempotency.test.ts src/test/task-subject.integration.test.ts",
+    "test:integration": "node ../../scripts/run-tsx.mjs --test src/test/outbox-idempotency.test.ts && node ../../scripts/run-tsx.mjs --test src/test/task-subject.integration.test.ts && node ../../scripts/run-tsx.mjs --test src/test/inventory-delta-idempotency.integration.test.ts",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed:ci": "node ../../scripts/run-tsx.mjs prisma/seed/ci.ts",

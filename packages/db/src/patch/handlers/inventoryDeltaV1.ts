@@ -3,6 +3,7 @@ import type { Prisma as PrismaTypes } from "@prisma/client";
 import { emitOutboxEvent } from "../../events/emit.js";
 import { ForbiddenError } from "../../errors.js";
 import type { PatchHandler } from "../types.js";
+import { randomUUID } from "node:crypto";
 
 function asObject(v: unknown): Record<string, unknown> {
   if (typeof v !== "object" || v === null || Array.isArray(v)) throw new Error("patch must be an object");
@@ -83,9 +84,10 @@ export const inventoryDeltaV1: PatchHandler = {
         update: op.unit ? { unit: op.unit } : {},
       });
 
-      try {
-        await tx.inventoryMutation.create({
-          data: {
+      const inserted = await tx.inventoryMutation.createMany({
+        data: [
+          {
+            id: randomUUID(),
             entityId: ctx.entityId,
             changeSetId: ctx.changeSetId,
             opIndex: i,
@@ -95,12 +97,10 @@ export const inventoryDeltaV1: PatchHandler = {
             delta: new Prisma.Decimal(op.delta),
             unit: op.unit ?? null,
           },
-        });
-      } catch (e: any) {
-        // Unique constraint on (changeSetId, opIndex) means we've already applied this op.
-        if (e?.code === "P2002") continue;
-        throw e;
-      }
+        ],
+        skipDuplicates: true,
+      });
+      if (inserted.count !== 1) continue;
 
       await tx.inventoryItem.update({
         where: { id: item.id },
@@ -122,4 +122,3 @@ export const inventoryDeltaV1: PatchHandler = {
     });
   },
 };
-
