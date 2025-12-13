@@ -1,4 +1,4 @@
-export const ROLES = ["admin", "member", "vendor"] as const;
+export const ROLES = ["admin", "contributor", "accountable"] as const;
 export type Role = (typeof ROLES)[number];
 
 export type Actor = {
@@ -6,4 +6,3 @@ export type Actor = {
   entityId: string;
   role: Role;
 };
-

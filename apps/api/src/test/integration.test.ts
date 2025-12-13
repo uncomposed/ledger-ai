@@ -43,7 +43,7 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "member",
+      "x-actor-role": "contributor",
       "x-correlation-id": "corr-create",
     },
     payload: { type: "demo", title: "t1" },
@@ -58,7 +58,7 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "member",
+      "x-actor-role": "contributor",
       "x-correlation-id": "corr-propose",
     },
     payload: { base_type: "demo", base_version: 1, risk_level: "low", patch: { op: "noop" } },
@@ -73,7 +73,7 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "member",
+      "x-actor-role": "contributor",
       "x-correlation-id": "corr-apply-member",
     },
     payload: { expected_version: 0 },
@@ -127,7 +127,7 @@ test("double submit with stale version returns 409", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "member",
+      "x-actor-role": "contributor",
       "x-correlation-id": "corr-create-2",
     },
     payload: { type: "demo", title: "t2" },
@@ -141,7 +141,7 @@ test("double submit with stale version returns 409", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "member",
+      "x-actor-role": "contributor",
       "x-correlation-id": "corr-ready",
     },
     payload: { to_state: "ready", expected_version: created.version },
@@ -154,7 +154,7 @@ test("double submit with stale version returns 409", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "member",
+      "x-actor-role": "contributor",
       "x-correlation-id": "corr-stale",
     },
     payload: { to_state: "in_progress", expected_version: created.version },
@@ -178,7 +178,7 @@ test("unknown fields are rejected by default", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "member",
+      "x-actor-role": "contributor",
       "x-correlation-id": "corr-extra",
     },
     payload: { type: "demo", title: "t3", extra: "nope" },

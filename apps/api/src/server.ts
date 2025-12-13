@@ -55,7 +55,7 @@ export function buildApp() {
     properties: {
       "x-entity-id": uuidSchema(),
       "x-actor-id": uuidSchema(),
-      "x-actor-role": { type: "string", enum: ["admin", "member", "vendor"] },
+      "x-actor-role": { type: "string", enum: ["admin", "contributor", "accountable"] },
       "x-correlation-id": { type: "string" },
     },
     required: ["x-entity-id", "x-actor-id", "x-actor-role"],
