@@ -653,7 +653,7 @@ test("lens run processes track and produces approval-queue proposal (idempotent)
   });
   assert.equal(queueRes.statusCode, 200);
   const queue = queueRes.json() as Array<{ changeset_id: string; base_type: string }>;
-  assert.ok(queue.some((x) => x.changeset_id === lens_run_id && x.base_type === "pantry_text.v1"));
+  assert.ok(queue.some((x) => x.changeset_id === lens_run_id && x.base_type === "inventory.import_text.v1"));
 
   await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-lens", leaseSeconds: 0 });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: `lensrun:${lens_run_id}`, eventType: "lens.run.completed.v1" } });

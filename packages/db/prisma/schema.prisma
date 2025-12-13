@@ -91,6 +91,8 @@ model Entity {
   questions   Question[]
   answers     Answer[]
   resources   Resource[]
+  locations   Location[]
+  inventory   InventoryItem[]
   outbox      EventOutbox[]
   eventLog    EventLog[]
 
@@ -107,8 +109,51 @@ model Resource {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  inventoryItems InventoryItem[]
+
   @@unique([entityId, kind, externalKey])
   @@index([entityId, kind])
+}
+
+enum LocationKind {
+  pantry
+  fridge
+  freezer
+  counter
+}
+
+model Location {
+  id        String       @id @default(uuid())
+  entityId  String
+  entity    Entity       @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  kind      LocationKind
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  items InventoryItem[]
+
+  @@unique([entityId, kind, name])
+  @@index([entityId, kind])
+}
+
+model InventoryItem {
+  id         String   @id @default(uuid())
+  entityId   String
+  entity     Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  quantity   Decimal? @db.Decimal(18, 6)
+  unit       String?
+  version    Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityId, resourceId, locationId])
+  @@index([entityId, locationId])
+  @@index([entityId, resourceId])
 }
 
 enum MembershipRole {

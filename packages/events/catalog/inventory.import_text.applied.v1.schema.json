@@ -1,0 +1,14 @@
+{
+  "$id": "inventory.import_text.applied.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "entity_id", "changeset_id", "track_id", "item_count"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "changeset_id": { "type": "string", "format": "uuid" },
+    "track_id": { "type": "string", "format": "uuid" },
+    "item_count": { "type": "integer", "minimum": 0 }
+  }
+}
+

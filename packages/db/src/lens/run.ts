@@ -82,7 +82,7 @@ async function runPantryTextV1(ctx: LensContext) {
   await proposeChangeSet(ctx.prisma, {
     taskId: task.id,
     changeSetId: ctx.lensRun.id,
-    baseType: "pantry_text.v1",
+    baseType: "inventory.import_text.v1",
     baseVersion: 1,
     riskLevel: "low",
     patch: { track_id: ctx.track.id, items: lines },

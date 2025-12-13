@@ -53,6 +53,7 @@ export async function createTask(
       eventVersion: 1,
       occurredAt: new Date(),
       payload: {
+        entity_id: task.entityId,
         task_id: task.id,
         created_by_actor_id: input.createdBy.actorId,
         produced: { changeset_ids: [] },

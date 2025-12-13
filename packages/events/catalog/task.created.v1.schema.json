@@ -2,10 +2,11 @@
   "$id": "task.created.v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["correlation_id", "task_id", "created_by_actor_id", "produced"],
+  "required": ["correlation_id", "task_id", "entity_id", "created_by_actor_id", "produced"],
   "properties": {
     "correlation_id": { "type": "string" },
     "task_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
     "created_by_actor_id": { "type": "string", "format": "uuid" },
     "produced": {
       "type": "object",

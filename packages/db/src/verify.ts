@@ -35,6 +35,11 @@ async function main() {
     "Answer_questionId_key",
     "Resource_entityId_kind_idx",
     "Resource_entityId_kind_externalKey_key",
+    "Location_entityId_kind_idx",
+    "Location_entityId_kind_name_key",
+    "InventoryItem_entityId_locationId_idx",
+    "InventoryItem_entityId_resourceId_idx",
+    "InventoryItem_entityId_resourceId_locationId_key",
   ];
 
   const have = new Set(indexes.map((x) => x.indexname));

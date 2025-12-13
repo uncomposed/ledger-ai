@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { getPatchHandler } from "./registry.js";
 import type { ActorContext, CorrelationContext } from "../commands/types.js";
+import "./builtin.js";
 
 export async function executeChangeSetPatchIfSupported(
   tx: Prisma.TransactionClient,
@@ -22,4 +23,3 @@ export async function executeChangeSetPatchIfSupported(
 
   await handler.apply(tx, { entityId: input.entityId, changeSetId: input.changeSetId, actor: input.actor, correlation: input.correlation, now: input.now }, input.patch);
 }
-
