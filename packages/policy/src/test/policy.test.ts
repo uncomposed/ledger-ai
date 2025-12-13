@@ -20,6 +20,15 @@ test("members can read changesets", () => {
   assert.equal(can(accountable, "changeset:read", { entityId: "e1" }), true);
 });
 
+test("members can ingest tracks and answer questions", () => {
+  const contributor: Actor = { actorId: "a", entityId: "e1", role: "contributor" };
+  const accountable: Actor = { actorId: "a", entityId: "e1", role: "accountable" };
+  assert.equal(can(contributor, "track:ingest", { entityId: "e1" }), true);
+  assert.equal(can(accountable, "track:ingest", { entityId: "e1" }), true);
+  assert.equal(can(contributor, "question:answer", { entityId: "e1" }), true);
+  assert.equal(can(accountable, "question:answer", { entityId: "e1" }), true);
+});
+
 test("accountable can complete tasks", () => {
   const actor: Actor = { actorId: "a", entityId: "e1", role: "accountable" };
   assert.equal(can(actor, "task:complete", { entityId: "e1" }), true);

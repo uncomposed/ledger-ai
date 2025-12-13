@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prisma, publishOutboxOnce } from "@ledger/db";
+import { prisma, publishOutboxOnce, createQuestion } from "@ledger/db";
 import { buildApp } from "../server.js";
+import { runLensRunsOnce } from "@ledger/db";
 
 function mustEnv(name: string): string {
   const v = process.env[name];
@@ -504,6 +505,159 @@ test("role enforcement: accountable can read tasks but cannot write tasks", asyn
     headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-acct-list" },
   });
   assert.equal(listOk.statusCode, 200);
+
+  await app.close();
+});
+
+test("track ingestion enqueues lens run and emits event", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-track-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-track-add" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  const trackRes = await app.inject({
+    method: "POST",
+    url: "/tracks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-track-ingest" },
+    payload: { kind: "text", text: "milk\neggs" },
+  });
+  assert.equal(trackRes.statusCode, 200);
+  const track = trackRes.json() as { track_id: string; lens_run_id: string };
+
+  const lensRun = await prisma.lensRun.findUniqueOrThrow({ where: { id: track.lens_run_id } });
+  assert.equal(lensRun.status, "queued");
+
+  await publishOutboxOnce(prisma, { limit: 200, workerId: "api-test-track", leaseSeconds: 0 });
+
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-track-ingest", eventType: "track.ingested.v1" } });
+
+  await app.close();
+});
+
+test("questions list and answer endpoint work and emit event", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-q-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-q-add" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  const q = await createQuestion(prisma, {
+    entityId: ENTITY_ID,
+    prompt: "What unit is this?",
+    context: { field: "quantity" },
+    actor: { actorId: MEMBER_ID, entityId: ENTITY_ID, role: "contributor" },
+    correlation: { correlationId: "corr-q-ask" },
+  });
+
+  const listRes = await app.inject({
+    method: "GET",
+    url: "/questions?status=open",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-q-list" },
+  });
+  assert.equal(listRes.statusCode, 200);
+  const list = listRes.json() as Array<{ question_id: string }>;
+  assert.ok(list.some((x) => x.question_id === q.id));
+
+  const answerRes = await app.inject({
+    method: "POST",
+    url: `/questions/${q.id}/answer`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-q-answer" },
+    payload: { expected_version: 0, answer: { unit: "count" } },
+  });
+  assert.equal(answerRes.statusCode, 200);
+
+  await publishOutboxOnce(prisma, { limit: 200, workerId: "api-test-q", leaseSeconds: 0 });
+
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-q-answer", eventType: "question.answered.v1" } });
+
+  await app.close();
+});
+
+test("lens run processes track and produces approval-queue proposal (idempotent)", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-lens-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-lens-add" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  const SYSTEM_ID = "00000000-0000-0000-0000-000000000100";
+  await prisma.actor.upsert({ where: { id: SYSTEM_ID }, create: { id: SYSTEM_ID, type: "system" }, update: { type: "system" } });
+
+  const trackRes = await app.inject({
+    method: "POST",
+    url: "/tracks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-lens-ingest" },
+    payload: { kind: "text", text: "milk\neggs" },
+  });
+  assert.equal(trackRes.statusCode, 200);
+  const { track_id, lens_run_id } = trackRes.json() as { track_id: string; lens_run_id: string };
+
+  const processed1 = await runLensRunsOnce(prisma, { limit: 10, systemActorId: SYSTEM_ID });
+  assert.equal(processed1, 1);
+  const processed2 = await runLensRunsOnce(prisma, { limit: 10, systemActorId: SYSTEM_ID });
+  assert.equal(processed2, 0);
+
+  const lensRun = await prisma.lensRun.findUniqueOrThrow({ where: { id: lens_run_id } });
+  assert.equal(lensRun.status, "succeeded");
+
+  const track = await prisma.track.findUniqueOrThrow({ where: { id: track_id } });
+  assert.equal(track.status, "processed");
+
+  const queueRes = await app.inject({
+    method: "GET",
+    url: "/approval-queue",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-lens-queue" },
+  });
+  assert.equal(queueRes.statusCode, 200);
+  const queue = queueRes.json() as Array<{ changeset_id: string; base_type: string }>;
+  assert.ok(queue.some((x) => x.changeset_id === lens_run_id && x.base_type === "pantry_text.v1"));
+
+  await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-lens", leaseSeconds: 0 });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: `lensrun:${lens_run_id}`, eventType: "lens.run.completed.v1" } });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: `lensrun:${lens_run_id}`, eventType: "changeset.proposed.v1" } });
 
   await app.close();
 });

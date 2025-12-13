@@ -24,6 +24,14 @@ async function main() {
     "Task_entityId_state_idx",
     "ChangeSet_entityId_state_idx",
     "ChangeSet_taskId_state_idx",
+    "Track_entityId_createdAt_idx",
+    "Track_entityId_status_idx",
+    "Track_correlationId_idx",
+    "TrackAttachment_trackId_idx",
+    "LensRun_trackId_lensKey_key",
+    "LensRun_entityId_status_idx",
+    "Question_entityId_status_idx",
+    "Answer_questionId_key",
   ];
 
   const have = new Set(indexes.map((x) => x.indexname));

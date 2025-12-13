@@ -1,0 +1,14 @@
+{
+  "$id": "track.ingested.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "track_id", "entity_id", "kind", "created_by_actor_id"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "track_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "kind": { "type": "string", "enum": ["text", "image"] },
+    "created_by_actor_id": { "type": "string", "format": "uuid" }
+  }
+}
+

@@ -1,0 +1,14 @@
+{
+  "$id": "question.answered.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "question_id", "entity_id", "answer_id", "answered_by_actor_id"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "question_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "answer_id": { "type": "string", "format": "uuid" },
+    "answered_by_actor_id": { "type": "string", "format": "uuid" }
+  }
+}
+

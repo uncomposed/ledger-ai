@@ -71,6 +71,8 @@ model Actor {
   tasksUpdated       Task[]       @relation("TaskUpdatedBy")
   changeSetsProposed ChangeSet[]  @relation("ChangeSetProposedBy")
   changeSetsApproved ChangeSet[]  @relation("ChangeSetApprovedBy")
+  tracksCreated      Track[]      @relation("TrackCreatedBy")
+  answersAuthored    Answer[]     @relation("AnswerAnsweredBy")
 }
 
 model Entity {
@@ -84,6 +86,10 @@ model Entity {
   memberships Membership[]
   tasks       Task[]
   changeSets  ChangeSet[]
+  tracks      Track[]
+  lensRuns    LensRun[]
+  questions   Question[]
+  answers     Answer[]
   outbox      EventOutbox[]
   eventLog    EventLog[]
 
@@ -129,6 +135,7 @@ model Task {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   changeSets       ChangeSet[]
+  questions        Question[]
 
   @@index([entityId, state])
 }
@@ -163,4 +170,119 @@ model ChangeSet {
 
   @@index([entityId, state])
   @@index([taskId, state])
+}
+
+enum TrackKind {
+  text
+  image
+}
+
+enum TrackStatus {
+  ingested
+  processed
+  failed
+}
+
+model Track {
+  id               String      @id @default(uuid())
+  entityId         String
+  entity           Entity      @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  kind             TrackKind
+  correlationId    String
+  text             String?
+  status           TrackStatus @default(ingested)
+  createdByActorId String
+  createdByActor   Actor       @relation("TrackCreatedBy", fields: [createdByActorId], references: [id], onDelete: Restrict)
+  processedAt      DateTime?
+  error            String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  attachments TrackAttachment[]
+  lensRuns    LensRun[]
+  questions   Question[]
+
+  @@index([entityId, createdAt])
+  @@index([entityId, status])
+  @@index([correlationId])
+}
+
+model TrackAttachment {
+  id          String   @id @default(uuid())
+  trackId     String
+  track       Track    @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  contentType String
+  sizeBytes   Int
+  sha256      String
+  storageKey  String?
+  createdAt   DateTime @default(now())
+
+  @@index([trackId])
+}
+
+enum LensRunStatus {
+  queued
+  running
+  succeeded
+  failed
+}
+
+model LensRun {
+  id         String        @id @default(uuid())
+  entityId   String
+  entity     Entity        @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  trackId    String
+  track      Track         @relation(fields: [trackId], references: [id], onDelete: Cascade)
+  lensKey    String
+  status     LensRunStatus @default(queued)
+  startedAt  DateTime?
+  finishedAt DateTime?
+  error      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@unique([trackId, lensKey])
+  @@index([entityId, status])
+}
+
+enum QuestionStatus {
+  open
+  answered
+  cancelled
+}
+
+model Question {
+  id               String         @id @default(uuid())
+  entityId         String
+  entity           Entity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  trackId          String?
+  track            Track?         @relation(fields: [trackId], references: [id], onDelete: SetNull)
+  taskId           String?
+  task             Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  status           QuestionStatus @default(open)
+  version          Int            @default(0)
+  prompt           String
+  context          Json
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  answer Answer?
+
+  @@index([entityId, status])
+  @@index([trackId])
+  @@index([taskId])
+}
+
+model Answer {
+  id                String   @id @default(uuid())
+  entityId           String
+  entity             Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  questionId         String   @unique
+  question           Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answeredByActorId  String
+  answeredByActor    Actor    @relation("AnswerAnsweredBy", fields: [answeredByActorId], references: [id], onDelete: Restrict)
+  answer             Json
+  createdAt          DateTime @default(now())
+
+  @@index([entityId, createdAt])
 }

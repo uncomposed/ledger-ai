@@ -11,6 +11,9 @@ import {
   createEntity,
   addMembership,
   changeMembershipRole,
+  ingestTrack,
+  ensureLensRun,
+  answerQuestion,
   applyChangeSet,
   createTask,
   proposeChangeSet,
@@ -277,6 +280,226 @@ export function buildApp() {
       });
 
       return { task_id: task.id, entity_id: task.entityId, state: task.state, version: task.version };
+    },
+  );
+
+  app.post(
+    "/tracks",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        body: {
+          oneOf: [
+            strictObjectSchema({
+              properties: {
+                kind: { type: "string", const: "text" },
+                text: { type: "string", minLength: 1 },
+              },
+              required: ["kind", "text"],
+            }),
+            strictObjectSchema({
+              properties: {
+                kind: { type: "string", const: "image" },
+                attachments: {
+                  type: "array",
+                  maxItems: 5,
+                  items: strictObjectSchema({
+                    properties: {
+                      content_type: { type: "string", minLength: 1 },
+                      size_bytes: { type: "integer", minimum: 0 },
+                      sha256: { type: "string", minLength: 64, maxLength: 64 },
+                      storage_key: { type: "string", minLength: 1 },
+                    },
+                    required: ["content_type", "size_bytes", "sha256"],
+                  }),
+                },
+              },
+              required: ["kind"],
+            }),
+          ],
+        },
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              track_id: uuidSchema(),
+              lens_run_id: uuidSchema(),
+            },
+            required: ["track_id", "lens_run_id"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      const correlationId = req.correlationId;
+      const body = req.body as
+        | { kind: "text"; text: string }
+        | {
+            kind: "image";
+            attachments?: Array<{ content_type: string; size_bytes: number; sha256: string; storage_key?: string }>;
+          };
+
+      const track = await ingestTrack(app.prisma, {
+        entityId: actor.entityId,
+        kind: body.kind,
+        text: body.kind === "text" ? body.text : undefined,
+        attachments:
+          body.kind === "image"
+            ? (body.attachments ?? []).map((a) => ({
+                contentType: a.content_type,
+                sizeBytes: a.size_bytes,
+                sha256: a.sha256,
+                storageKey: a.storage_key,
+              }))
+            : undefined,
+        createdBy: actor,
+        correlation: { correlationId },
+      });
+
+      const lensKey = track.kind === "text" ? "pantry_text_v1" : "image_stub_v1";
+      const lensRun = await ensureLensRun(app.prisma, { trackId: track.id, lensKey, actor, correlation: { correlationId } });
+
+      return { track_id: track.id, lens_run_id: lensRun.id };
+    },
+  );
+
+  app.get(
+    "/approval-queue",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        response: {
+          200: {
+            type: "array",
+            items: strictObjectSchema({
+              properties: {
+                changeset_id: uuidSchema(),
+                task_id: uuidSchema(),
+                state: { type: "string", enum: [...ChangeSetStates] },
+                version: nonNegativeIntSchema(),
+                base_type: { type: "string" },
+                base_version: nonNegativeIntSchema(),
+                risk_level: { type: "string" },
+              },
+              required: ["changeset_id", "task_id", "state", "version", "base_type", "base_version", "risk_level"],
+            }),
+          },
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "changeset:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+
+      const rows = await app.prisma.changeSet.findMany({
+        where: { entityId: actor.entityId, state: "pending_approval" },
+        orderBy: { createdAt: "asc" },
+        take: 100,
+      });
+
+      return rows.map((cs) => ({
+        changeset_id: cs.id,
+        task_id: cs.taskId,
+        state: cs.state,
+        version: cs.version,
+        base_type: cs.baseType,
+        base_version: cs.baseVersion,
+        risk_level: cs.riskLevel,
+      }));
+    },
+  );
+
+  app.get(
+    "/questions",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        querystring: strictObjectSchema({
+          properties: { status: { type: "string", enum: ["open", "answered", "cancelled"] } },
+          required: [],
+        }),
+        response: {
+          200: {
+            type: "array",
+            items: strictObjectSchema({
+              properties: {
+                question_id: uuidSchema(),
+                entity_id: uuidSchema(),
+                track_id: { type: ["string", "null"], format: "uuid" },
+                task_id: { type: ["string", "null"], format: "uuid" },
+                status: { type: "string", enum: ["open", "answered", "cancelled"] },
+                version: nonNegativeIntSchema(),
+                prompt: { type: "string" },
+              },
+              required: ["question_id", "entity_id", "track_id", "task_id", "status", "version", "prompt"],
+            }),
+          },
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "question:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+      const q = (req.query ?? {}) as { status?: "open" | "answered" | "cancelled" };
+      const where = { entityId: actor.entityId, ...(q.status ? { status: q.status } : {}) };
+      const rows = await app.prisma.question.findMany({ where, orderBy: { createdAt: "asc" }, take: 100 });
+      return rows.map((x) => ({
+        question_id: x.id,
+        entity_id: x.entityId,
+        track_id: x.trackId,
+        task_id: x.taskId,
+        status: x.status,
+        version: x.version,
+        prompt: x.prompt,
+      }));
+    },
+  );
+
+  app.post(
+    "/questions/:questionId/answer",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { questionId: uuidSchema() }, required: ["questionId"] }),
+        body: strictObjectSchema({
+          properties: {
+            expected_version: nonNegativeIntSchema(),
+            answer: { type: "object", additionalProperties: true },
+          },
+          required: ["expected_version", "answer"],
+        }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              question_id: uuidSchema(),
+              status: { type: "string", const: "answered" },
+              version: nonNegativeIntSchema(),
+              answer_id: uuidSchema(),
+            },
+            required: ["question_id", "status", "version", "answer_id"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      const params = req.params as { questionId: string };
+      const body = req.body as { expected_version: number; answer: unknown };
+      const correlationId = req.correlationId;
+
+      const result = await answerQuestion(app.prisma, {
+        questionId: params.questionId,
+        expectedVersion: body.expected_version,
+        answer: body.answer,
+        answeredBy: actor,
+        correlation: { correlationId },
+      });
+
+      return { question_id: result.question.id, status: "answered", version: result.question.version, answer_id: result.answer.id };
     },
   );
 

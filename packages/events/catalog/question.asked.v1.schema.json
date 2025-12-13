@@ -1,0 +1,15 @@
+{
+  "$id": "question.asked.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "question_id", "entity_id", "prompt"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "question_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "track_id": { "type": ["string", "null"], "format": "uuid" },
+    "task_id": { "type": ["string", "null"], "format": "uuid" },
+    "prompt": { "type": "string", "minLength": 1 }
+  }
+}
+

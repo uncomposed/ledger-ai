@@ -17,6 +17,7 @@ export async function createTask(
   prisma: PrismaClient,
   input: {
     entityId: string;
+    taskId?: string;
     type: string;
     title: string;
     createdBy: ActorContext;
@@ -27,8 +28,14 @@ export async function createTask(
   if (!can(input.createdBy, "task:write", { entityId: input.entityId })) throw new ForbiddenError("Not allowed");
 
   return prisma.$transaction(async (tx) => {
+    if (input.taskId) {
+      const existing = await tx.task.findUnique({ where: { id: input.taskId } });
+      if (existing) return existing;
+    }
+
     const task = await tx.task.create({
       data: {
+        ...(input.taskId ? { id: input.taskId } : {}),
         entityId: input.entityId,
         type: input.type,
         state: "proposed",
