@@ -12,8 +12,8 @@
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"process.exit(0)\"",
-    "events:validate": "node --loader tsx src/validate.ts",
-    "events:codegen": "node --loader tsx src/codegen.ts",
+    "events:validate": "node --import tsx src/validate.ts",
+    "events:codegen": "node --import tsx src/codegen.ts",
     "events:codegen:check": "node ../../scripts/ci/check-generated.mjs"
   },
   "dependencies": {

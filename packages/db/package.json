@@ -12,11 +12,11 @@
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"process.exit(0)\"",
-    "test:integration": "node --test --loader tsx src/test/outbox-idempotency.test.ts",
+    "test:integration": "node --test --import tsx src/test/outbox-idempotency.test.ts",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
-    "db:seed:ci": "node --loader tsx prisma/seed/ci.ts",
-    "db:verify": "node --loader tsx src/verify.ts"
+    "db:seed:ci": "node --import tsx prisma/seed/ci.ts",
+    "db:verify": "node --import tsx src/verify.ts"
   },
   "dependencies": {
     "@ledger/events": "workspace:*",
