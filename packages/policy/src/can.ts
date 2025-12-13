@@ -4,8 +4,11 @@ export type PolicyAction =
   | "task:read"
   | "task:write"
   | "task:complete"
+  | "changeset:read"
   | "changeset:propose"
   | "changeset:apply"
+  | "membership:read"
+  | "membership:write"
   | "admin:manage";
 
 export function can(actor: Actor, action: PolicyAction, resource: { entityId: string }): boolean {
@@ -14,11 +17,18 @@ export function can(actor: Actor, action: PolicyAction, resource: { entityId: st
 
   switch (action) {
     case "task:read":
+      return actor.role === "contributor" || actor.role === "accountable";
+    case "changeset:read":
+      return actor.role === "contributor" || actor.role === "accountable";
     case "task:write":
+      return actor.role === "contributor";
     case "task:complete":
+      return actor.role === "accountable";
     case "changeset:propose":
-      return actor.role === "member";
+      return actor.role === "contributor";
     case "changeset:apply":
+    case "membership:read":
+    case "membership:write":
     case "admin:manage":
       return false;
     default: {

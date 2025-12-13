@@ -8,19 +8,20 @@ datasource db {
 }
 
 model EventOutbox {
-  id           String   @id @default(uuid())
-  entityId     String
+  id            String    @id @default(uuid())
+  entityId      String
+  entity        Entity    @relation(fields: [entityId], references: [id], onDelete: Cascade)
   correlationId String
-  eventType    String
-  eventVersion Int
-  occurredAt   DateTime
-  payload      Json
-  createdAt    DateTime @default(now())
-  publishedAt  DateTime?
-  publishError String?
-  claimedAt    DateTime?
-  claimedBy    String?
-  leaseUntil   DateTime?
+  eventType     String
+  eventVersion  Int
+  occurredAt    DateTime
+  payload       Json
+  createdAt     DateTime  @default(now())
+  publishedAt   DateTime?
+  publishError  String?
+  claimedAt     DateTime?
+  claimedBy     String?
+  leaseUntil    DateTime?
 
   @@index([publishedAt])
   @@index([leaseUntil])
@@ -29,15 +30,16 @@ model EventOutbox {
 }
 
 model EventLog {
-  id           String   @id @default(uuid())
-  outboxId     String   @unique
-  entityId     String
+  id            String   @id @default(uuid())
+  outboxId      String   @unique
+  entityId      String
+  entity        Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
   correlationId String
-  eventType    String
-  eventVersion Int
-  occurredAt   DateTime
-  payload      Json
-  appendedAt   DateTime @default(now())
+  eventType     String
+  eventVersion  Int
+  occurredAt    DateTime
+  payload       Json
+  appendedAt    DateTime @default(now())
 
   @@index([entityId, occurredAt])
   @@index([correlationId])
@@ -52,19 +54,81 @@ enum TaskState {
   cancelled
 }
 
-model Task {
-  id        String   @id @default(uuid())
+enum ActorType {
+  human
+  ai
+  system
+}
+
+model Actor {
+  id        String    @id @default(uuid())
+  type      ActorType @default(human)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  memberships        Membership[]
+  tasksCreated       Task[]       @relation("TaskCreatedBy")
+  tasksUpdated       Task[]       @relation("TaskUpdatedBy")
+  changeSetsProposed ChangeSet[]  @relation("ChangeSetProposedBy")
+  changeSetsApproved ChangeSet[]  @relation("ChangeSetApprovedBy")
+}
+
+model Entity {
+  id             String   @id @default(uuid())
+  parentEntityId String?
+  parent         Entity?  @relation("EntityParent", fields: [parentEntityId], references: [id])
+  children       Entity[] @relation("EntityParent")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  memberships Membership[]
+  tasks       Task[]
+  changeSets  ChangeSet[]
+  outbox      EventOutbox[]
+  eventLog    EventLog[]
+
+  @@index([parentEntityId])
+}
+
+enum MembershipRole {
+  admin
+  contributor
+  accountable
+}
+
+model Membership {
+  id        String         @id @default(uuid())
   entityId  String
-  type      String
-  state     TaskState
-  title     String
-  version   Int      @default(0)
+  actorId   String
+  role      MembershipRole
+  version   Int            @default(0)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  entity Entity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  actor  Actor  @relation(fields: [actorId], references: [id], onDelete: Cascade)
+
+  @@unique([entityId, actorId])
+  @@index([actorId])
+  @@index([entityId, role])
+}
+
+model Task {
+  id               String      @id @default(uuid())
+  entityId         String
+  entity           Entity      @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  type             String
+  state            TaskState
+  title            String
+  version          Int         @default(0)
   createdByActorId String
+  createdByActor   Actor       @relation("TaskCreatedBy", fields: [createdByActorId], references: [id], onDelete: Restrict)
   updatedByActorId String?
-  stateChangedAt DateTime @default(now())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  changeSets ChangeSet[]
+  updatedByActor   Actor?      @relation("TaskUpdatedBy", fields: [updatedByActorId], references: [id], onDelete: SetNull)
+  stateChangedAt   DateTime    @default(now())
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  changeSets       ChangeSet[]
 
   @@index([entityId, state])
 }
@@ -77,22 +141,25 @@ enum ChangeSetState {
 }
 
 model ChangeSet {
-  id          String   @id @default(uuid())
-  entityId    String
-  taskId      String
-  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  state       ChangeSetState
-  version     Int      @default(0)
-  baseType    String
-  baseVersion Int
-  riskLevel   String
-  patch       Json
+  id                String         @id @default(uuid())
+  entityId          String
+  entity            Entity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  taskId            String
+  task              Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  state             ChangeSetState
+  version           Int            @default(0)
+  baseType          String
+  baseVersion       Int
+  riskLevel         String
+  patch             Json
   proposedByActorId String
+  proposedByActor   Actor          @relation("ChangeSetProposedBy", fields: [proposedByActorId], references: [id], onDelete: Restrict)
   approvedByActorId String?
-  stateChangedAt DateTime @default(now())
-  appliedAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  approvedByActor   Actor?         @relation("ChangeSetApprovedBy", fields: [approvedByActorId], references: [id], onDelete: SetNull)
+  stateChangedAt    DateTime       @default(now())
+  appliedAt         DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([entityId, state])
   @@index([taskId, state])

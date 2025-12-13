@@ -1,5 +1,4 @@
 {
-  "defaultRole": "member",
+  "defaultRole": "contributor",
   "adminRole": "admin"
 }
-
