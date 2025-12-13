@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { randomUUID } from "node:crypto";
 import { logger } from "@ledger/observability";
 import { prisma } from "@ledger/db";
 import type { PrismaClient } from "@ledger/db";
@@ -7,14 +8,17 @@ import {
   ForbiddenError,
   NotFoundError,
   resolveActorContext,
+  createEntity,
+  addMembership,
+  changeMembershipRole,
   applyChangeSet,
   createTask,
   proposeChangeSet,
   transitionTaskState,
 } from "@ledger/db";
-import { getActorFromHeaders } from "./http/auth.js";
+import { getActorFromHeaders, getActorIdFromHeaders } from "./http/auth.js";
 import { enforceRouteSchemas } from "./http/strict-routes.js";
-import { ChangeSetStates, TaskStates, nonNegativeIntSchema, strictObjectSchema, uuidSchema } from "./http/schema.js";
+import { ChangeSetStates, MembershipRoles, TaskStates, nonNegativeIntSchema, strictObjectSchema, uuidSchema } from "./http/schema.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -62,6 +66,16 @@ export function buildApp() {
     required: ["x-entity-id", "x-actor-id"],
   };
 
+  const ActorOnlyHeaders = {
+    type: "object",
+    additionalProperties: true,
+    properties: {
+      "x-actor-id": uuidSchema(),
+      "x-correlation-id": { type: "string" },
+    },
+    required: ["x-actor-id"],
+  };
+
   app.get(
     "/health",
     {
@@ -72,6 +86,138 @@ export function buildApp() {
       },
     },
     async () => ({ ok: true }),
+  );
+
+  app.post(
+    "/entities",
+    {
+      schema: {
+        headers: ActorOnlyHeaders,
+        body: strictObjectSchema({
+          properties: {
+            entity_id: uuidSchema(),
+          },
+          required: [],
+        }),
+        response: {
+          200: strictObjectSchema({
+            properties: { entity_id: uuidSchema() },
+            required: ["entity_id"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const ids = getActorIdFromHeaders(req.headers as Record<string, unknown>);
+      const body = req.body as { entity_id?: string };
+      const correlationId = req.id;
+
+      const entityId = body.entity_id ?? randomUUID();
+
+      await createEntity(app.prisma, {
+        entityId,
+        createdByActorId: ids.actorId,
+        correlation: { correlationId },
+      });
+
+      return { entity_id: entityId };
+    },
+  );
+
+  app.post(
+    "/entities/:entityId/memberships",
+    {
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { entityId: uuidSchema() }, required: ["entityId"] }),
+        body: strictObjectSchema({
+          properties: {
+            actor_id: uuidSchema(),
+            role: { type: "string", enum: [...MembershipRoles] },
+          },
+          required: ["actor_id", "role"],
+        }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              membership_id: uuidSchema(),
+              entity_id: uuidSchema(),
+              actor_id: uuidSchema(),
+              role: { type: "string", enum: [...MembershipRoles] },
+              version: nonNegativeIntSchema(),
+            },
+            required: ["membership_id", "entity_id", "actor_id", "role", "version"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const performedBy = await resolveActorContext(app.prisma, ids);
+      const params = req.params as { entityId: string };
+      const body = req.body as { actor_id: string; role: (typeof MembershipRoles)[number] };
+      const correlationId = req.id;
+
+      const membership = await addMembership(app.prisma, {
+        entityId: params.entityId,
+        actorId: body.actor_id,
+        role: body.role,
+        performedBy,
+        correlation: { correlationId },
+      });
+
+      return {
+        membership_id: membership.id,
+        entity_id: membership.entityId,
+        actor_id: membership.actorId,
+        role: membership.role,
+        version: membership.version,
+      };
+    },
+  );
+
+  app.patch(
+    "/memberships/:membershipId",
+    {
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { membershipId: uuidSchema() }, required: ["membershipId"] }),
+        body: strictObjectSchema({
+          properties: {
+            role: { type: "string", enum: [...MembershipRoles] },
+            expected_version: nonNegativeIntSchema(),
+          },
+          required: ["role", "expected_version"],
+        }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              membership_id: uuidSchema(),
+              role: { type: "string", enum: [...MembershipRoles] },
+              version: nonNegativeIntSchema(),
+            },
+            required: ["membership_id", "role", "version"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const performedBy = await resolveActorContext(app.prisma, ids);
+      const params = req.params as { membershipId: string };
+      const body = req.body as { role: (typeof MembershipRoles)[number]; expected_version: number };
+      const correlationId = req.id;
+
+      const membership = await changeMembershipRole(app.prisma, {
+        membershipId: params.membershipId,
+        expectedVersion: body.expected_version,
+        role: body.role,
+        performedBy,
+        correlation: { correlationId },
+      });
+
+      return { membership_id: membership.id, role: membership.role, version: membership.version };
+    },
   );
 
   app.post(

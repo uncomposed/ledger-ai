@@ -21,8 +21,11 @@ export async function addMembership(
     const entity = await tx.entity.findUnique({ where: { id: input.entityId } });
     if (!entity) throw new NotFoundError("Entity not found");
 
-    const actor = await tx.actor.findUnique({ where: { id: input.actorId } });
-    if (!actor) throw new NotFoundError("Actor not found");
+    await tx.actor.upsert({
+      where: { id: input.actorId },
+      create: { id: input.actorId, type: "human" },
+      update: {},
+    });
 
     try {
       const membership = await tx.membership.create({

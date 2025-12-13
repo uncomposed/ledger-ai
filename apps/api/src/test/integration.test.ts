@@ -12,6 +12,8 @@ function mustEnv(name: string): string {
 const ENTITY_ID = "00000000-0000-0000-0000-000000000001";
 const MEMBER_ID = "00000000-0000-0000-0000-000000000010";
 const ADMIN_ID = "00000000-0000-0000-0000-000000000011";
+const ENTITY_B_ID = "00000000-0000-0000-0000-000000000002";
+const ADMIN_B_ID = "00000000-0000-0000-0000-000000000012";
 
 async function resetDb() {
   await prisma.eventLog.deleteMany({});
@@ -186,6 +188,82 @@ test("unknown fields are rejected by default", async () => {
     payload: { type: "demo", title: "t3", extra: "nope" },
   });
   assert.equal(res.statusCode, 400);
+
+  await app.close();
+});
+
+test("entity + membership audit events publish and cross-entity membership write is denied", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  const createEntityRes = await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: {
+      "x-actor-id": ADMIN_ID,
+      "x-correlation-id": "corr-entity-create",
+    },
+    payload: { entity_id: ENTITY_ID },
+  });
+  assert.equal(createEntityRes.statusCode, 200);
+
+  const createEntityBRes = await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: {
+      "x-actor-id": ADMIN_B_ID,
+      "x-correlation-id": "corr-entity-b-create",
+    },
+    payload: { entity_id: ENTITY_B_ID },
+  });
+  assert.equal(createEntityBRes.statusCode, 200);
+
+  const addMemberRes = await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: {
+      "x-entity-id": ENTITY_ID,
+      "x-actor-id": ADMIN_ID,
+      "x-correlation-id": "corr-member-add",
+    },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+  assert.equal(addMemberRes.statusCode, 200);
+  const added = addMemberRes.json() as { membership_id: string; version: number };
+  assert.equal(added.version, 0);
+
+  const changeRoleRes = await app.inject({
+    method: "PATCH",
+    url: `/memberships/${added.membership_id}`,
+    headers: {
+      "x-entity-id": ENTITY_ID,
+      "x-actor-id": ADMIN_ID,
+      "x-correlation-id": "corr-member-role",
+    },
+    payload: { role: "accountable", expected_version: 0 },
+  });
+  assert.equal(changeRoleRes.statusCode, 200);
+
+  const crossEntityDeniedRes = await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_B_ID}/memberships`,
+    headers: {
+      "x-entity-id": ENTITY_ID,
+      "x-actor-id": ADMIN_ID,
+      "x-correlation-id": "corr-cross-entity",
+    },
+    payload: { actor_id: "00000000-0000-0000-0000-000000000099", role: "contributor" },
+  });
+  assert.equal(crossEntityDeniedRes.statusCode, 403);
+
+  await publishOutboxOnce(prisma, { limit: 100, workerId: "api-test-m2", leaseSeconds: 0 });
+
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-entity-create", eventType: "entity.created.v1" } });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-member-add", eventType: "membership.added.v1" } });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-member-role", eventType: "membership.role_changed.v1" } });
 
   await app.close();
 });

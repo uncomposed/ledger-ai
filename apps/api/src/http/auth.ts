@@ -12,3 +12,9 @@ export function getActorFromHeaders(headers: Record<string, unknown>): {
 
   return { actorId, entityId };
 }
+
+export function getActorIdFromHeaders(headers: Record<string, unknown>): { actorId: string } {
+  const actorId = String(headers["x-actor-id"] ?? "");
+  if (!actorId) throw new Error("missing x-actor-id");
+  return { actorId };
+}
