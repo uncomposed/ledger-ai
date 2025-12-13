@@ -24,6 +24,7 @@ import {
 } from "@ledger/db";
 import { buildAuthProvider } from "./auth/provider.js";
 import type { EntityScopedActor } from "./auth/types.js";
+import { UnauthorizedError } from "./auth/errors.js";
 import { enforceRouteSchemas } from "./http/strict-routes.js";
 import type { UploadsProvider } from "./uploads/provider.js";
 import { LocalUploadsProvider } from "./uploads/local.js";
@@ -136,6 +137,7 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
   });
 
   app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof UnauthorizedError) return reply.status(401).send({ error: "unauthorized", message: err.message });
     if (err instanceof NotFoundError) return reply.status(404).send({ error: "not_found", message: err.message });
     if (err instanceof ForbiddenError) return reply.status(403).send({ error: "forbidden", message: err.message });
     if (err instanceof ConflictError) return reply.status(409).send({ error: "conflict", message: err.message });

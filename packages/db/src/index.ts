@@ -13,3 +13,4 @@ export { runLensRunsOnce } from "./lens/run.js";
 export { createMealGoal } from "./commands/mealGoal.js";
 export { ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
 export { resolveActorContext, listActorMemberships } from "./auth/resolve.js";
+export { ensureActorForExternalIdentity } from "./auth/identity.js";

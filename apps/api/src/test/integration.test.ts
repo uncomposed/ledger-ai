@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { prisma, publishOutboxOnce, createQuestion } from "@ledger/db";
 import { buildApp } from "../server.js";
 import { runLensRunsOnce } from "@ledger/db";
-import { SignJWT } from "jose";
+import { SignJWT, exportJWK, generateKeyPair } from "jose";
+import { createServer } from "node:http";
 
 function mustEnv(name: string): string {
   const v = process.env[name];
@@ -19,6 +20,7 @@ const ENTITY_B_ID = "00000000-0000-0000-0000-000000000002";
 const ADMIN_B_ID = "00000000-0000-0000-0000-000000000012";
 
 async function resetDb() {
+  await prisma.authIdentity.deleteMany({});
   await prisma.inventoryMutation.deleteMany({});
   await prisma.inventoryItem.deleteMany({});
   await prisma.location.deleteMany({});
@@ -338,6 +340,85 @@ test("jwt auth: /me works with bearer token", async () => {
   assert.equal(json.actor_id, ADMIN_ID);
 
   await app.close();
+});
+
+test("clerk auth: maps external subject to internal actor id", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const { publicKey, privateKey } = await generateKeyPair("RS256");
+  const publicJwk = await exportJWK(publicKey);
+  publicJwk.use = "sig";
+  publicJwk.alg = "RS256";
+  publicJwk.kid = "test-kid";
+
+  const server = createServer((req, res) => {
+    if (req.url === "/jwks") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ keys: [publicJwk] }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const addr = server.address();
+  if (!addr || typeof addr === "string") throw new Error("failed to bind jwks server");
+  const jwksUrl = `http://127.0.0.1:${addr.port}/jwks`;
+
+  const externalSub = "user_test_123";
+  const token = await new SignJWT({})
+    .setProtectedHeader({ alg: "RS256", kid: "test-kid" })
+    .setSubject(externalSub)
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(privateKey);
+
+  const app = buildApp({
+    env: {
+      ...process.env,
+      AUTH_PROVIDER: "clerk",
+      CLERK_JWKS_URL: jwksUrl,
+    },
+  });
+  await app.ready();
+
+  const me1 = await app.inject({
+    method: "GET",
+    url: "/me",
+    headers: { authorization: `Bearer ${token}`, "x-correlation-id": "corr-clerk-me-1" },
+  });
+  assert.equal(me1.statusCode, 200, me1.body);
+  const meJson1 = me1.json() as { actor_id: string; memberships: Array<{ entity_id: string; role: string }> };
+  assert.equal(meJson1.memberships.length, 0);
+
+  const createEntityRes = await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { authorization: `Bearer ${token}`, "x-correlation-id": "corr-clerk-entity" },
+    payload: {},
+  });
+  assert.equal(createEntityRes.statusCode, 200, createEntityRes.body);
+  const created = createEntityRes.json() as { entity_id: string };
+
+  const me2 = await app.inject({
+    method: "GET",
+    url: "/me",
+    headers: { authorization: `Bearer ${token}`, "x-correlation-id": "corr-clerk-me-2" },
+  });
+  assert.equal(me2.statusCode, 200, me2.body);
+  const meJson2 = me2.json() as { actor_id: string; memberships: Array<{ entity_id: string; role: string }> };
+  assert.equal(meJson2.actor_id, meJson1.actor_id);
+  assert.deepEqual(meJson2.memberships, [{ entity_id: created.entity_id, role: "admin" }]);
+
+  const identity = await prisma.authIdentity.findFirstOrThrow({
+    where: { provider: "clerk", externalSubject: externalSub },
+  });
+  assert.equal(identity.actorId, meJson1.actor_id);
+
+  await app.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 test("local upload + image track verifies attachment", async () => {

@@ -4,6 +4,7 @@ import { resolveActorContext } from "@ledger/db";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { webcrypto } from "node:crypto";
 import type { EntityScopedActor } from "./types.js";
+import { UnauthorizedError } from "./errors.js";
 
 if (!(globalThis as any).crypto) {
   (globalThis as any).crypto = webcrypto;
@@ -15,7 +16,7 @@ function isUuid(v: string): boolean {
 
 function bearer(req: FastifyRequest): string {
   const raw = String(req.headers.authorization ?? "");
-  if (!raw.toLowerCase().startsWith("bearer ")) throw new Error("missing bearer token");
+  if (!raw.toLowerCase().startsWith("bearer ")) throw new UnauthorizedError("missing bearer token");
   return raw.slice("bearer ".length).trim();
 }
 
@@ -54,15 +55,15 @@ export class JwtAuthProvider {
     const result = this.jwks ? await jwtVerify(token, this.jwks, options) : await jwtVerify(token, this.secret!, options);
 
     const actorId = String(result.payload.sub ?? "");
-    if (!actorId) throw new Error("jwt missing sub");
-    if (!isUuid(actorId)) throw new Error("jwt sub must be a UUID actor id");
+    if (!actorId) throw new UnauthorizedError("jwt missing sub");
+    if (!isUuid(actorId)) throw new UnauthorizedError("jwt sub must be a UUID actor id");
     return actorId;
   }
 
   async entityScopedActorFromRequest(req: FastifyRequest): Promise<EntityScopedActor> {
     const actorId = await this.actorIdFromRequest(req);
     const entityId = String(req.headers["x-entity-id"] ?? "");
-    if (!entityId) throw new Error("missing x-entity-id");
+    if (!entityId) throw new UnauthorizedError("missing x-entity-id");
     return resolveActorContext(this.prisma, { actorId, entityId });
   }
 }

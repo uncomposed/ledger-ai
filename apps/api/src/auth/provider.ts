@@ -3,6 +3,8 @@ import type { PrismaClient } from "@ledger/db";
 import { resolveActorContext } from "@ledger/db";
 import type { EntityScopedActor } from "./types.js";
 import { JwtAuthProvider } from "./jwt.js";
+import { ClerkAuthProvider as ClerkVerifierAuthProvider } from "./clerk.js";
+import { UnauthorizedError } from "./errors.js";
 
 export interface AuthProvider {
   actorIdFromRequest(req: FastifyRequest): Promise<string>;
@@ -14,15 +16,15 @@ class NoneAuthProvider implements AuthProvider {
 
   async actorIdFromRequest(req: FastifyRequest): Promise<string> {
     const actorId = String(req.headers["x-actor-id"] ?? "");
-    if (!actorId) throw new Error("missing x-actor-id");
+    if (!actorId) throw new UnauthorizedError("missing x-actor-id");
     return actorId;
   }
 
   async entityScopedActorFromRequest(req: FastifyRequest): Promise<EntityScopedActor> {
     const actorId = String(req.headers["x-actor-id"] ?? "");
     const entityId = String(req.headers["x-entity-id"] ?? "");
-    if (!actorId) throw new Error("missing x-actor-id");
-    if (!entityId) throw new Error("missing x-entity-id");
+    if (!actorId) throw new UnauthorizedError("missing x-actor-id");
+    if (!entityId) throw new UnauthorizedError("missing x-entity-id");
     return resolveActorContext(this.prisma, { actorId, entityId });
   }
 }
@@ -37,12 +39,24 @@ class DevAuthProvider extends NoneAuthProvider {
 }
 
 class ClerkAuthProvider implements AuthProvider {
-  async actorIdFromRequest(_req: FastifyRequest): Promise<string> {
-    throw new Error('AUTH_PROVIDER="clerk" is not implemented yet');
+  private readonly provider: ClerkVerifierAuthProvider;
+
+  constructor(prisma: PrismaClient, env: NodeJS.ProcessEnv) {
+    const jwksUrl = String(env.CLERK_JWKS_URL ?? "");
+    if (!jwksUrl) throw new Error('AUTH_PROVIDER="clerk" requires CLERK_JWKS_URL');
+    this.provider = new ClerkVerifierAuthProvider(prisma, {
+      jwksUrl,
+      issuer: env.CLERK_JWT_ISSUER || undefined,
+      audience: env.CLERK_JWT_AUDIENCE || undefined,
+    });
   }
 
-  async entityScopedActorFromRequest(_req: FastifyRequest): Promise<EntityScopedActor> {
-    throw new Error('AUTH_PROVIDER="clerk" is not implemented yet');
+  async actorIdFromRequest(req: FastifyRequest): Promise<string> {
+    return this.provider.actorIdFromRequest(req);
+  }
+
+  async entityScopedActorFromRequest(req: FastifyRequest): Promise<EntityScopedActor> {
+    return this.provider.entityScopedActorFromRequest(req);
   }
 }
 
@@ -63,6 +77,6 @@ export function buildAuthProvider(prisma: PrismaClient, env: NodeJS.ProcessEnv =
       secret: env.AUTH_JWT_SECRET || undefined,
     });
   }
-  if (provider === "clerk") return new ClerkAuthProvider();
+  if (provider === "clerk") return new ClerkAuthProvider(prisma, env);
   throw new Error(`Unknown AUTH_PROVIDER: ${provider}`);
 }

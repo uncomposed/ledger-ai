@@ -34,6 +34,8 @@ async function main() {
     "LensRun_leaseUntil_idx",
     "Question_entityId_status_idx",
     "Answer_questionId_key",
+    "AuthIdentity_actorId_idx",
+    "AuthIdentity_provider_externalSubject_key",
     "Resource_entityId_kind_idx",
     "Resource_entityId_kind_externalKey_key",
     "Location_entityId_kind_idx",

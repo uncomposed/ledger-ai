@@ -40,4 +40,6 @@ Config is environment-driven via `AUTH_PROVIDER`:
 - `AUTH_PROVIDER=jwt` validates `Authorization: Bearer <token>`:
   - `sub` must be the internal UUID actor id.
   - Configure `AUTH_JWT_SECRET` (HS256) or `AUTH_JWT_JWKS_URL` (JWKS), plus optional `AUTH_JWT_ISSUER`/`AUTH_JWT_AUDIENCE`.
-
+- `AUTH_PROVIDER=clerk` validates `Authorization: Bearer <token>` against Clerk JWKS and maps the Clerk `sub` to an internal `Actor` id using `AuthIdentity` (no vendor lock-in in core tables):
+  - Configure `CLERK_JWKS_URL`, plus optional `CLERK_JWT_ISSUER`/`CLERK_JWT_AUDIENCE`.
+  - The API will auto-create an internal `Actor` on first request for a new Clerk subject.
