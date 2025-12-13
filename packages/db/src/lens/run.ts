@@ -1,6 +1,10 @@
-import type { PrismaClient } from "@ledger/db";
-import { completeLensRun, createQuestion, createTask, proposeChangeSet, startLensRun } from "@ledger/db";
-import { ConflictError } from "@ledger/db";
+import type { LensRun, PrismaClient, Track } from "@prisma/client";
+import { completeLensRun } from "../commands/lensrun.js";
+import { createQuestion } from "../commands/question.js";
+import { proposeChangeSet } from "../commands/changeset.js";
+import { createTask } from "../commands/task.js";
+import { startLensRun } from "../commands/lensrun.js";
+import { ConflictError } from "../errors.js";
 
 function systemActor(systemActorId: string, entityId: string) {
   return { actorId: systemActorId, entityId, role: "admin" as const };
@@ -8,8 +12,8 @@ function systemActor(systemActorId: string, entityId: string) {
 
 type LensContext = {
   prisma: PrismaClient;
-  lensRun: { id: string; entityId: string; trackId: string; lensKey: string };
-  track: { id: string; entityId: string; kind: "text" | "image"; text: string | null };
+  lensRun: LensRun;
+  track: Track;
   systemActorId: string;
 };
 
@@ -115,12 +119,7 @@ export async function runLensRunsOnce(
     }
 
     try {
-      await runLens({
-        prisma,
-        lensRun: { id: run.id, entityId: run.entityId, trackId: run.trackId, lensKey: run.lensKey },
-        track: { id: track.id, entityId: track.entityId, kind: track.kind, text: track.text },
-        systemActorId: opts.systemActorId,
-      });
+      await runLens({ prisma, lensRun: run, track, systemActorId: opts.systemActorId });
 
       await prisma.track.update({
         where: { id: track.id },
@@ -148,3 +147,4 @@ export async function runLensRunsOnce(
 
   return processed;
 }
+

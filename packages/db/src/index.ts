@@ -9,5 +9,6 @@ export { createEntity } from "./commands/entity.js";
 export { ingestTrack } from "./commands/track.js";
 export { ensureLensRun, startLensRun, completeLensRun } from "./commands/lensrun.js";
 export { createQuestion, answerQuestion } from "./commands/question.js";
+export { runLensRunsOnce } from "./lens/run.js";
 export { ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
 export { resolveActorContext } from "./auth/resolve.js";

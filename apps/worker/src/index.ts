@@ -1,6 +1,5 @@
-import { prisma, publishOutboxOnce } from "@ledger/db";
+import { prisma, publishOutboxOnce, runLensRunsOnce } from "@ledger/db";
 import { logger } from "@ledger/observability";
-import { runLensRunsOnce } from "./lens/run.js";
 
 async function main() {
   const intervalMs = Number(process.env.OUTBOX_POLL_MS ?? "1000");
