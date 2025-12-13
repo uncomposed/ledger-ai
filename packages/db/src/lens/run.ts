@@ -5,16 +5,15 @@ import { proposeChangeSet } from "../commands/changeset.js";
 import { createTask } from "../commands/task.js";
 import { startLensRun } from "../commands/lensrun.js";
 import { ConflictError } from "../errors.js";
-
-function systemActor(systemActorId: string, entityId: string) {
-  return { actorId: systemActorId, entityId, role: "admin" as const };
-}
+import { resolveActorContext } from "../auth/resolve.js";
+import type { ActorContext } from "../commands/types.js";
 
 type LensContext = {
   prisma: PrismaClient;
   lensRun: LensRun;
   track: Track;
   systemActorId: string;
+  system: ActorContext;
 };
 
 async function runPantryTextV1(ctx: LensContext) {
@@ -31,7 +30,7 @@ async function runPantryTextV1(ctx: LensContext) {
       trackId: ctx.track.id,
       prompt: "I couldn't find any items in that track. Can you paste a simple list (one per line)?",
       context: { lens_key: ctx.lensRun.lensKey },
-      actor: systemActor(ctx.systemActorId, ctx.lensRun.entityId),
+      actor: ctx.system,
       correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
     });
     return;
@@ -42,7 +41,7 @@ async function runPantryTextV1(ctx: LensContext) {
     taskId: ctx.lensRun.id,
     type: "track.lens.pantry_text_v1",
     title: "Review pantry import proposals",
-    createdBy: systemActor(ctx.systemActorId, ctx.lensRun.entityId),
+    createdBy: ctx.system,
     correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
   });
 
@@ -53,7 +52,7 @@ async function runPantryTextV1(ctx: LensContext) {
     baseVersion: 1,
     riskLevel: "low",
     patch: { track_id: ctx.track.id, items: lines },
-    actor: systemActor(ctx.systemActorId, ctx.lensRun.entityId),
+    actor: ctx.system,
     correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
   });
 }
@@ -64,7 +63,7 @@ async function runImageStubV1(ctx: LensContext) {
     trackId: ctx.track.id,
     prompt: "Image ingestion is stubbed. Please describe what’s in the photo (one item per line).",
     context: { lens_key: ctx.lensRun.lensKey },
-    actor: systemActor(ctx.systemActorId, ctx.lensRun.entityId),
+    actor: ctx.system,
     correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
   });
 }
@@ -77,7 +76,7 @@ async function runLens(ctx: LensContext) {
     trackId: ctx.track.id,
     prompt: `Unknown lens key: ${ctx.lensRun.lensKey}`,
     context: { lens_key: ctx.lensRun.lensKey },
-    actor: systemActor(ctx.systemActorId, ctx.lensRun.entityId),
+    actor: ctx.system,
     correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
   });
   throw new Error(`Unknown lens key: ${ctx.lensRun.lensKey}`);
@@ -96,11 +95,11 @@ export async function runLensRunsOnce(
   let processed = 0;
 
   for (const run of runs) {
-    const actor = systemActor(opts.systemActorId, run.entityId);
+    const system = await resolveActorContext(prisma, { actorId: opts.systemActorId, entityId: run.entityId });
     const correlationId = `lensrun:${run.id}`;
 
     try {
-      await startLensRun(prisma, { lensRunId: run.id, actor, correlation: { correlationId } });
+      await startLensRun(prisma, { lensRunId: run.id, actor: system, correlation: { correlationId } });
     } catch (e) {
       if (e instanceof ConflictError) continue;
       throw e;
@@ -112,21 +111,21 @@ export async function runLensRunsOnce(
         lensRunId: run.id,
         status: "failed",
         error: "Track missing",
-        actor,
+        actor: system,
         correlation: { correlationId },
       });
       continue;
     }
 
     try {
-      await runLens({ prisma, lensRun: run, track, systemActorId: opts.systemActorId });
+      await runLens({ prisma, lensRun: run, track, systemActorId: opts.systemActorId, system });
 
       await prisma.track.update({
         where: { id: track.id },
         data: { status: "processed", processedAt: new Date(), error: null },
       });
 
-      await completeLensRun(prisma, { lensRunId: run.id, status: "succeeded", actor, correlation: { correlationId } });
+      await completeLensRun(prisma, { lensRunId: run.id, status: "succeeded", actor: system, correlation: { correlationId } });
       processed += 1;
     } catch (err) {
       const message = String((err as any)?.message ?? err);
@@ -138,7 +137,7 @@ export async function runLensRunsOnce(
         lensRunId: run.id,
         status: "failed",
         error: message,
-        actor,
+        actor: system,
         correlation: { correlationId },
       });
       processed += 1;
@@ -147,4 +146,3 @@ export async function runLensRunsOnce(
 
   return processed;
 }
-

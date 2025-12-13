@@ -32,6 +32,8 @@ async function main() {
     "LensRun_entityId_status_idx",
     "Question_entityId_status_idx",
     "Answer_questionId_key",
+    "Resource_entityId_kind_idx",
+    "Resource_entityId_kind_externalKey_key",
   ];
 
   const have = new Set(indexes.map((x) => x.indexname));

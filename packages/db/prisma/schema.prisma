@@ -90,10 +90,25 @@ model Entity {
   lensRuns    LensRun[]
   questions   Question[]
   answers     Answer[]
+  resources   Resource[]
   outbox      EventOutbox[]
   eventLog    EventLog[]
 
   @@index([parentEntityId])
+}
+
+model Resource {
+  id          String   @id @default(uuid())
+  entityId    String
+  entity      Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  kind        String
+  externalKey String?
+  name        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([entityId, kind, externalKey])
+  @@index([entityId, kind])
 }
 
 enum MembershipRole {

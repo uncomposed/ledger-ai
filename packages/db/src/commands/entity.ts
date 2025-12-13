@@ -1,6 +1,7 @@
 import type { Entity, PrismaClient } from "@prisma/client";
 import { emitOutboxEvent } from "../events/emit.js";
 import type { ActorContext, CorrelationContext } from "./types.js";
+import { DEFAULT_SYSTEM_ACTOR_ID } from "../system.js";
 
 export async function createEntity(
   prisma: PrismaClient,
@@ -25,6 +26,22 @@ export async function createEntity(
         actorId: input.createdByActorId,
         role: "admin",
       },
+    });
+
+    await tx.actor.upsert({
+      where: { id: DEFAULT_SYSTEM_ACTOR_ID },
+      create: { id: DEFAULT_SYSTEM_ACTOR_ID, type: "system" },
+      update: { type: "system" },
+    });
+
+    await tx.membership.upsert({
+      where: { entityId_actorId: { entityId: entity.id, actorId: DEFAULT_SYSTEM_ACTOR_ID } },
+      create: {
+        entityId: entity.id,
+        actorId: DEFAULT_SYSTEM_ACTOR_ID,
+        role: "admin",
+      },
+      update: { role: "admin" },
     });
 
     await emitOutboxEvent(tx, {

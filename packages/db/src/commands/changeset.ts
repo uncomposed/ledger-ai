@@ -3,6 +3,7 @@ import { can } from "@ledger/policy";
 import { emitOutboxEvent } from "../events/emit.js";
 import { ConflictError, ForbiddenError, NotFoundError } from "../errors.js";
 import type { ActorContext, CorrelationContext } from "./types.js";
+import { executeChangeSetPatchIfSupported } from "../patch/execute.js";
 
 export async function proposeChangeSet(
   prisma: PrismaClient,
@@ -73,6 +74,7 @@ export async function applyChangeSet(
   },
 ): Promise<ChangeSet> {
   return prisma.$transaction(async (tx) => {
+    const now = new Date();
     const cs = await tx.changeSet.findUnique({ where: { id: input.changeSetId } });
     if (!cs) throw new NotFoundError("ChangeSet not found");
     if (cs.entityId !== input.actor.entityId) throw new ForbiddenError("Cross-entity access denied");
@@ -85,11 +87,22 @@ export async function applyChangeSet(
         state: "applied",
         version: { increment: 1 },
         approvedByActorId: input.actor.actorId,
-        appliedAt: new Date(),
-        stateChangedAt: new Date(),
+        appliedAt: now,
+        stateChangedAt: now,
       },
     });
     if (updated.count !== 1) throw new ConflictError("Version conflict");
+
+    await executeChangeSetPatchIfSupported(tx, {
+      entityId: cs.entityId,
+      changeSetId: cs.id,
+      baseType: cs.baseType,
+      baseVersion: cs.baseVersion,
+      patch: cs.patch,
+      actor: input.actor,
+      correlation: input.correlation,
+      now,
+    });
 
     const next = await tx.changeSet.findUniqueOrThrow({ where: { id: cs.id } });
 
