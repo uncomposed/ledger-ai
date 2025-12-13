@@ -468,3 +468,42 @@ test("cross-entity isolation: cannot act within entity without membership", asyn
 
   await app.close();
 });
+
+test("role enforcement: accountable can read tasks but cannot write tasks", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-acct-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-acct-add" },
+    payload: { actor_id: MEMBER_ID, role: "accountable" },
+  });
+
+  const createDenied = await app.inject({
+    method: "POST",
+    url: "/tasks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-acct-create" },
+    payload: { type: "demo", title: "nope" },
+  });
+  assert.equal(createDenied.statusCode, 403);
+
+  const listOk = await app.inject({
+    method: "GET",
+    url: "/tasks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-acct-list" },
+  });
+  assert.equal(listOk.statusCode, 200);
+
+  await app.close();
+});

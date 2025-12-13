@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { logger } from "@ledger/observability";
 import { prisma } from "@ledger/db";
 import type { PrismaClient } from "@ledger/db";
+import { can } from "@ledger/policy";
 import {
   ConflictError,
   ForbiddenError,
@@ -430,6 +431,7 @@ export function buildApp() {
     },
     async (req) => {
       const actor = req.actor!;
+      if (!can(actor, "task:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
       const q = (req.query ?? {}) as { limit?: number };
       const limit = q.limit ?? 50;
       const rows = await app.prisma.task.findMany({
@@ -472,6 +474,7 @@ export function buildApp() {
     },
     async (req) => {
       const actor = req.actor!;
+      if (!can(actor, "task:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
       const params = req.params as { taskId: string };
       const task = await app.prisma.task.findFirst({ where: { id: params.taskId, entityId: actor.entityId } });
       if (!task) throw new NotFoundError("Task not found");
@@ -523,6 +526,7 @@ export function buildApp() {
     },
     async (req) => {
       const actor = req.actor!;
+      if (!can(actor, "changeset:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
       const params = req.params as { changeSetId: string };
       const cs = await app.prisma.changeSet.findFirst({ where: { id: params.changeSetId, entityId: actor.entityId } });
       if (!cs) throw new NotFoundError("ChangeSet not found");

@@ -23,6 +23,9 @@ export async function createTask(
     correlation: CorrelationContext;
   },
 ): Promise<Task> {
+  if (input.entityId !== input.createdBy.entityId) throw new ForbiddenError("Cross-entity access denied");
+  if (!can(input.createdBy, "task:write", { entityId: input.entityId })) throw new ForbiddenError("Not allowed");
+
   return prisma.$transaction(async (tx) => {
     const task = await tx.task.create({
       data: {

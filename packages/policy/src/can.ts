@@ -4,6 +4,7 @@ export type PolicyAction =
   | "task:read"
   | "task:write"
   | "task:complete"
+  | "changeset:read"
   | "changeset:propose"
   | "changeset:apply"
   | "membership:read"
@@ -16,6 +17,8 @@ export function can(actor: Actor, action: PolicyAction, resource: { entityId: st
 
   switch (action) {
     case "task:read":
+      return actor.role === "contributor" || actor.role === "accountable";
+    case "changeset:read":
       return actor.role === "contributor" || actor.role === "accountable";
     case "task:write":
       return actor.role === "contributor";
