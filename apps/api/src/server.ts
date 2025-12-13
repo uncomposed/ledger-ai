@@ -1,5 +1,8 @@
 import Fastify from "fastify";
-import { randomUUID } from "node:crypto";
+import cors from "@fastify/cors";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { logger } from "@ledger/observability";
 import { prisma } from "@ledger/db";
 import type { PrismaClient } from "@ledger/db";
@@ -11,6 +14,7 @@ import {
   createEntity,
   addMembership,
   changeMembershipRole,
+  listActorMemberships,
   ingestTrack,
   ensureLensRun,
   answerQuestion,
@@ -44,7 +48,8 @@ declare module "fastify" {
   }
 }
 
-export function buildApp() {
+export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
+  const env = opts.env ?? process.env;
   const app = Fastify({
     logger: false,
     requestIdHeader: "x-correlation-id",
@@ -56,11 +61,48 @@ export function buildApp() {
     },
   });
 
+  const uploadsProvider = String(env.UPLOADS_PROVIDER ?? "local").toLowerCase();
+  const uploadsRootDir = env.UPLOADS_DIR ?? ".tmp/uploads";
+  if (uploadsProvider !== "local") throw new Error(`Unsupported UPLOADS_PROVIDER: ${uploadsProvider}`);
+
   app.decorate("prisma", prisma);
 
-  enforceRouteSchemas(app);
+  const corsAllowedOrigins = String(env.CORS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const corsAllowAll = corsAllowedOrigins.includes("*");
+  if (env.NODE_ENV === "production" && corsAllowAll) {
+    throw new Error('CORS_ALLOWED_ORIGINS cannot include "*" in production');
+  }
+  if (corsAllowedOrigins.length) {
+    app.register(cors, {
+      origin(origin, cb) {
+        if (!origin) return cb(null, true);
+        if (corsAllowAll) return cb(null, true);
+        return cb(null, corsAllowedOrigins.includes(origin));
+      },
+      credentials: true,
+    });
+  }
 
-  const authProvider = buildAuthProvider(app.prisma);
+  const authProvider = buildAuthProvider(app.prisma, env);
+
+  app.addContentTypeParser(
+    [
+      "application/octet-stream",
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "image/heic",
+      "image/heif",
+      "application/pdf",
+    ],
+    { parseAs: "buffer" },
+    (_req, body, done) => done(null, body),
+  );
+
+  enforceRouteSchemas(app);
 
   app.addHook("preHandler", async (req) => {
     req.correlationId = req.id;
@@ -81,7 +123,7 @@ export function buildApp() {
     if ((err as any)?.validation) {
       return reply.status(400).send({ error: "bad_request", message: String(err.message ?? "validation failed") });
     }
-    const message = process.env.NODE_ENV === "production" ? "internal error" : String(err?.message ?? err);
+    const message = env.NODE_ENV === "production" ? "internal error" : String(err?.message ?? err);
     return reply.status(500).send({ error: "internal", message });
   });
 
@@ -117,6 +159,155 @@ export function buildApp() {
       },
     },
     async () => ({ ok: true }),
+  );
+
+  app.post(
+    "/uploads/presign",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        body: strictObjectSchema({
+          properties: {
+            content_type: { type: "string", minLength: 1 },
+            size_bytes: { type: "integer", minimum: 0, maximum: 25 * 1024 * 1024 },
+            sha256: { type: "string", minLength: 64, maxLength: 64 },
+          },
+          required: ["content_type", "size_bytes", "sha256"],
+        }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              storage_key: { type: "string", minLength: 1 },
+              method: { type: "string", const: "PUT" },
+              url: { type: "string", minLength: 1 },
+              headers: { type: "object", additionalProperties: { type: "string" } },
+              expires_at: { type: "string", minLength: 1 },
+            },
+            required: ["storage_key", "method", "url", "headers", "expires_at"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "track:ingest", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+
+      const body = req.body as { content_type: string; size_bytes: number; sha256: string };
+      const storageKey = randomUUID();
+      const url = new URL(`/uploads/${storageKey}`, `http://${req.headers.host ?? "localhost"}`).toString();
+
+      return {
+        storage_key: storageKey,
+        method: "PUT",
+        url,
+        headers: {
+          "content-type": body.content_type,
+        },
+        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      };
+    },
+  );
+
+  app.put(
+    "/uploads/:storageKey",
+    {
+      config: { auth: "entity" },
+      bodyLimit: 25 * 1024 * 1024,
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { storageKey: { type: "string", minLength: 1 } }, required: ["storageKey"] }),
+        response: {
+          200: strictObjectSchema({ properties: { ok: { type: "boolean", const: true } }, required: ["ok"] }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "track:ingest", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+
+      const params = req.params as { storageKey: string };
+      const body = req.body as unknown;
+      if (!Buffer.isBuffer(body)) throw new Error("Upload body must be binary");
+
+      const entityDir = join(uploadsRootDir, actor.entityId);
+      await mkdir(entityDir, { recursive: true });
+
+      const dest = join(entityDir, params.storageKey);
+      const alreadyExists = await stat(dest)
+        .then(() => true)
+        .catch((e: any) => {
+          if (e?.code === "ENOENT") return false;
+          throw e;
+        });
+      if (alreadyExists) throw new ConflictError("Upload already exists");
+
+      await writeFile(dest, body);
+      return { ok: true };
+    },
+  );
+
+  app.get(
+    "/me",
+    {
+      config: { auth: "actor" },
+      schema: {
+        headers: ActorOnlyHeaders,
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              actor_id: uuidSchema(),
+              memberships: {
+                type: "array",
+                items: strictObjectSchema({
+                  properties: {
+                    entity_id: uuidSchema(),
+                    role: { type: "string", enum: [...MembershipRoles] },
+                  },
+                  required: ["entity_id", "role"],
+                }),
+              },
+            },
+            required: ["actor_id", "memberships"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actorId = req.actorId!;
+      const memberships = await listActorMemberships(app.prisma, { actorId });
+      return {
+        actor_id: actorId,
+        memberships: memberships.map((m) => ({ entity_id: m.entityId, role: m.role })),
+      };
+    },
+  );
+
+  app.get(
+    "/entities",
+    {
+      config: { auth: "actor" },
+      schema: {
+        headers: ActorOnlyHeaders,
+        response: {
+          200: {
+            type: "array",
+            items: strictObjectSchema({
+              properties: {
+                entity_id: uuidSchema(),
+                role: { type: "string", enum: [...MembershipRoles] },
+              },
+              required: ["entity_id", "role"],
+            }),
+          },
+        },
+      },
+    },
+    async (req) => {
+      const actorId = req.actorId!;
+      const memberships = await listActorMemberships(app.prisma, { actorId });
+      return memberships.map((m) => ({ entity_id: m.entityId, role: m.role }));
+    },
   );
 
   app.post(
@@ -320,7 +511,7 @@ export function buildApp() {
                       sha256: { type: "string", minLength: 64, maxLength: 64 },
                       storage_key: { type: "string", minLength: 1 },
                     },
-                    required: ["content_type", "size_bytes", "sha256"],
+                    required: ["content_type", "size_bytes", "sha256", "storage_key"],
                   }),
                 },
               },
@@ -346,8 +537,20 @@ export function buildApp() {
         | { kind: "text"; text: string }
         | {
             kind: "image";
-            attachments?: Array<{ content_type: string; size_bytes: number; sha256: string; storage_key?: string }>;
+            attachments?: Array<{ content_type: string; size_bytes: number; sha256: string; storage_key: string }>;
           };
+
+      if (uploadsProvider === "local" && body.kind === "image") {
+        const attachments = body.attachments ?? [];
+        for (const a of attachments) {
+          const path = join(uploadsRootDir, actor.entityId, a.storage_key);
+          const bytes = await readFile(path).catch(() => null);
+          if (!bytes) throw new NotFoundError("Upload not found");
+          if (bytes.length !== a.size_bytes) throw new ConflictError("Upload size mismatch");
+          const have = createHash("sha256").update(bytes).digest("hex");
+          if (have !== a.sha256) throw new ConflictError("Upload sha256 mismatch");
+        }
+      }
 
       const track = await ingestTrack(app.prisma, {
         entityId: actor.entityId,

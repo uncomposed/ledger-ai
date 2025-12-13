@@ -13,6 +13,7 @@
     "events:validate": "pnpm -C packages/events events:validate",
     "events:codegen": "pnpm -C packages/events events:codegen",
     "events:codegen:check": "pnpm -C packages/events events:codegen:check",
+    "events:replay": "pnpm -C packages/db events:replay",
     "policy:test": "pnpm -C packages/policy test",
     "ci:danger": "node scripts/ci/dangerous-change-detector.mjs"
   },

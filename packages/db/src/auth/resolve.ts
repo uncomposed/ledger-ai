@@ -25,3 +25,18 @@ export async function resolveActorContext(
   return { actorId: input.actorId, entityId: input.entityId, role: toRole(membership.role) };
 }
 
+export async function listActorMemberships(
+  prisma: PrismaClient,
+  input: { actorId: string },
+): Promise<Array<{ entityId: string; role: Role }>> {
+  const actor = await prisma.actor.findUnique({ where: { id: input.actorId } });
+  if (!actor) throw new NotFoundError("Actor not found");
+
+  const memberships = await prisma.membership.findMany({
+    where: { actorId: input.actorId },
+    select: { entityId: true, role: true },
+    orderBy: { entityId: "asc" },
+  });
+
+  return memberships.map((m) => ({ entityId: m.entityId, role: toRole(m.role) }));
+}

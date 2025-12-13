@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { prisma, publishOutboxOnce, createQuestion } from "@ledger/db";
 import { buildApp } from "../server.js";
 import { runLensRunsOnce } from "@ledger/db";
@@ -273,6 +274,121 @@ test("entity + membership audit events publish and cross-entity membership write
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-member-role", eventType: "membership.role_changed.v1" } });
 
   await app.close();
+});
+
+test("/me returns actor memberships", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+  await seedActorsAndEntity();
+
+  const app = buildApp();
+  await app.ready();
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/me",
+    headers: {
+      "x-actor-id": ADMIN_ID,
+      "x-correlation-id": "corr-me",
+    },
+  });
+  assert.equal(res.statusCode, 200);
+  const json = res.json() as { actor_id: string; memberships: Array<{ entity_id: string; role: string }> };
+  assert.equal(json.actor_id, ADMIN_ID);
+  assert.deepEqual(json.memberships, [{ entity_id: ENTITY_ID, role: "admin" }]);
+
+  await app.close();
+});
+
+test("local upload + image track verifies attachment", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+  await seedActorsAndEntity();
+
+  const app = buildApp();
+  await app.ready();
+
+  const bytes = Buffer.from("hello upload");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+
+  const presignRes = await app.inject({
+    method: "POST",
+    url: "/uploads/presign",
+    headers: {
+      "x-entity-id": ENTITY_ID,
+      "x-actor-id": MEMBER_ID,
+      "x-correlation-id": "corr-presign",
+    },
+    payload: { content_type: "application/octet-stream", size_bytes: bytes.length, sha256 },
+  });
+  assert.equal(presignRes.statusCode, 200);
+  const presign = presignRes.json() as { storage_key: string; url: string };
+
+  const putPath = new URL(presign.url).pathname;
+  const putRes = await app.inject({
+    method: "PUT",
+    url: putPath,
+    headers: {
+      "x-entity-id": ENTITY_ID,
+      "x-actor-id": MEMBER_ID,
+      "content-type": "application/octet-stream",
+      "x-correlation-id": "corr-put",
+    },
+    payload: bytes,
+  });
+  assert.equal(putRes.statusCode, 200);
+
+  const trackRes = await app.inject({
+    method: "POST",
+    url: "/tracks",
+    headers: {
+      "x-entity-id": ENTITY_ID,
+      "x-actor-id": MEMBER_ID,
+      "x-correlation-id": "corr-track-image",
+    },
+    payload: {
+      kind: "image",
+      attachments: [
+        {
+          content_type: "application/octet-stream",
+          size_bytes: bytes.length,
+          sha256,
+          storage_key: presign.storage_key,
+        },
+      ],
+    },
+  });
+  assert.equal(trackRes.statusCode, 200);
+
+  await app.close();
+});
+
+test("cors allowlist is enforced and wildcard is rejected in production", async () => {
+  const app = buildApp({ env: { ...process.env, CORS_ALLOWED_ORIGINS: "http://example.com" } });
+  await app.ready();
+
+  const allowed = await app.inject({
+    method: "GET",
+    url: "/health",
+    headers: { origin: "http://example.com" },
+  });
+  assert.equal(allowed.statusCode, 200);
+  assert.equal(allowed.headers["access-control-allow-origin"], "http://example.com");
+
+  const denied = await app.inject({
+    method: "GET",
+    url: "/health",
+    headers: { origin: "http://nope.example.com" },
+  });
+  assert.equal(denied.statusCode, 200);
+  assert.equal(denied.headers["access-control-allow-origin"], undefined);
+
+  await app.close();
+
+  assert.throws(
+    () => buildApp({ env: { ...process.env, NODE_ENV: "production", CORS_ALLOWED_ORIGINS: "*" } }),
+    /CORS_ALLOWED_ORIGINS cannot include "\*" in production/,
+  );
 });
 
 test("entity isolation: cannot read other entity's tasks/changesets by ID", async () => {

@@ -12,4 +12,4 @@ export { createQuestion, answerQuestion } from "./commands/question.js";
 export { runLensRunsOnce } from "./lens/run.js";
 export { createMealGoal } from "./commands/mealGoal.js";
 export { ConflictError, ForbiddenError, NotFoundError } from "./errors.js";
-export { resolveActorContext } from "./auth/resolve.js";
+export { resolveActorContext, listActorMemberships } from "./auth/resolve.js";

@@ -28,6 +28,15 @@ class NoneAuthProvider implements AuthProvider {
   }
 }
 
+class DevAuthProvider extends NoneAuthProvider {
+  constructor(prisma: PrismaClient, env: NodeJS.ProcessEnv) {
+    if (env.NODE_ENV === "production") {
+      throw new Error('AUTH_PROVIDER="dev" must not be used in production');
+    }
+    super(prisma);
+  }
+}
+
 class ClerkAuthProvider implements AuthProvider {
   actorIdFromRequest(_req: FastifyRequest): string {
     throw new Error('AUTH_PROVIDER="clerk" is not implemented yet');
@@ -38,10 +47,15 @@ class ClerkAuthProvider implements AuthProvider {
   }
 }
 
-export function buildAuthProvider(prisma: PrismaClient): AuthProvider {
-  const provider = String(process.env.AUTH_PROVIDER ?? "none").toLowerCase();
-  if (provider === "none") return new NoneAuthProvider(prisma);
+export function buildAuthProvider(prisma: PrismaClient, env: NodeJS.ProcessEnv = process.env): AuthProvider {
+  const provider = String(env.AUTH_PROVIDER ?? "none").toLowerCase();
+  if (provider === "none") {
+    if (env.NODE_ENV === "production") {
+      throw new Error('AUTH_PROVIDER="none" must not be used in production');
+    }
+    return new NoneAuthProvider(prisma);
+  }
+  if (provider === "dev") return new DevAuthProvider(prisma, env);
   if (provider === "clerk") return new ClerkAuthProvider();
   throw new Error(`Unknown AUTH_PROVIDER: ${provider}`);
 }
-
