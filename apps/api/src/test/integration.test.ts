@@ -17,6 +17,20 @@ const ENTITY_B_ID = "00000000-0000-0000-0000-000000000002";
 const ADMIN_B_ID = "00000000-0000-0000-0000-000000000012";
 
 async function resetDb() {
+  await prisma.inventoryMutation.deleteMany({});
+  await prisma.inventoryItem.deleteMany({});
+  await prisma.location.deleteMany({});
+  await prisma.resource.deleteMany({});
+  await prisma.recipeIngredient.deleteMany({});
+  await prisma.recipeStep.deleteMany({});
+  await prisma.recipe.deleteMany({});
+  await prisma.mealGoal.deleteMany({});
+  await prisma.taskSubject.deleteMany({});
+  await prisma.trackAttachment.deleteMany({});
+  await prisma.answer.deleteMany({});
+  await prisma.question.deleteMany({});
+  await prisma.lensRun.deleteMany({});
+  await prisma.track.deleteMany({});
   await prisma.eventLog.deleteMany({});
   await prisma.eventOutbox.deleteMany({});
   await prisma.changeSet.deleteMany({});
@@ -653,11 +667,355 @@ test("lens run processes track and produces approval-queue proposal (idempotent)
   });
   assert.equal(queueRes.statusCode, 200);
   const queue = queueRes.json() as Array<{ changeset_id: string; base_type: string }>;
-  assert.ok(queue.some((x) => x.changeset_id === lens_run_id && x.base_type === "pantry_text.v1"));
+  assert.ok(queue.some((x) => x.changeset_id === lens_run_id && x.base_type === "inventory.import_text.v1"));
+
+  const cs = await prisma.changeSet.findUniqueOrThrow({ where: { id: lens_run_id } });
+  assert.equal(cs.state, "pending_approval");
+
+  const applyRes = await app.inject({
+    method: "POST",
+    url: `/changesets/${lens_run_id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-inv-apply" },
+    payload: { expected_version: cs.version },
+  });
+  assert.equal(applyRes.statusCode, 200);
+
+  const invRes = await app.inject({
+    method: "GET",
+    url: "/inventory",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-inv-list" },
+  });
+  assert.equal(invRes.statusCode, 200);
+  const items = invRes.json() as Array<{ resource_name: string | null; location_kind: string | null }>;
+  assert.ok(items.length >= 2);
+  assert.ok(items.some((x) => x.resource_name?.toLowerCase().includes("milk")));
+  assert.ok(items.some((x) => x.location_kind === "kitchen.pantry"));
 
   await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-lens", leaseSeconds: 0 });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: `lensrun:${lens_run_id}`, eventType: "lens.run.completed.v1" } });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: `lensrun:${lens_run_id}`, eventType: "changeset.proposed.v1" } });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-inv-apply", eventType: "inventory.import_text.applied.v1" } });
+
+  await app.close();
+});
+
+test("meal goals can be created and listed (and emit event)", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-meal-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-meal-add" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  const createRes = await app.inject({
+    method: "POST",
+    url: "/meal-goals",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-meal-create" },
+    payload: { text: "It would be great if we could cook pasta this week" },
+  });
+  assert.equal(createRes.statusCode, 200);
+  const created = createRes.json() as { meal_goal_id: string };
+
+  const listRes = await app.inject({
+    method: "GET",
+    url: "/meal-goals",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-meal-list" },
+  });
+  assert.equal(listRes.statusCode, 200);
+  const list = listRes.json() as Array<{ meal_goal_id: string }>;
+  assert.ok(list.some((x) => x.meal_goal_id === created.meal_goal_id));
+
+  await publishOutboxOnce(prisma, { limit: 200, workerId: "api-test-meal", leaseSeconds: 0 });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-meal-create", eventType: "meal.goal.created.v1" } });
+
+  await app.close();
+});
+
+test("meal goal planning produces a plan changeset and applying it creates tasks", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-add" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  // Seed a minimal recipe (entity-scoped) with ingredients matching inventory.import_text externalKeys.
+  const pasta = await prisma.resource.upsert({
+    where: { entityId_kind_externalKey: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "pasta" } },
+    create: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "pasta", name: "Pasta" },
+    update: { name: "Pasta" },
+  });
+
+  const sauce = await prisma.resource.upsert({
+    where: { entityId_kind_externalKey: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "tomato sauce" } },
+    create: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "tomato sauce", name: "Tomato Sauce" },
+    update: { name: "Tomato Sauce" },
+  });
+
+  const recipe = await prisma.recipe.create({ data: { entityId: ENTITY_ID, name: "Pasta Marinara" } });
+  await prisma.recipeIngredient.createMany({
+    data: [
+      { recipeId: recipe.id, resourceId: pasta.id },
+      { recipeId: recipe.id, resourceId: sauce.id },
+    ],
+  });
+  await prisma.recipeStep.createMany({
+    data: [
+      { recipeId: recipe.id, stepIndex: 0, text: "Boil pasta." },
+      { recipeId: recipe.id, stepIndex: 1, text: "Warm sauce and combine." },
+    ],
+  });
+
+  // Ingest inventory list containing only pasta.
+  const invTrackRes = await app.inject({
+    method: "POST",
+    url: "/tracks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-inv-track" },
+    payload: { kind: "text", text: "pasta" },
+  });
+  assert.equal(invTrackRes.statusCode, 200);
+  const invLens = invTrackRes.json() as { lens_run_id: string };
+
+  const SYSTEM_ID = "00000000-0000-0000-0000-000000000100";
+  const processedInv = await runLensRunsOnce(prisma, { limit: 10, systemActorId: SYSTEM_ID, leaseSeconds: 0 });
+  assert.equal(processedInv, 1);
+
+  const invCs = await prisma.changeSet.findUniqueOrThrow({ where: { id: invLens.lens_run_id } });
+  const invApplyRes = await app.inject({
+    method: "POST",
+    url: `/changesets/${invCs.id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-inv-apply" },
+    payload: { expected_version: invCs.version },
+  });
+  assert.equal(invApplyRes.statusCode, 200);
+
+  const mealRes = await app.inject({
+    method: "POST",
+    url: "/meal-goals",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-goal" },
+    payload: { text: "Cook something easy" },
+  });
+  assert.equal(mealRes.statusCode, 200);
+  const goal = mealRes.json() as { meal_goal_id: string };
+
+  const planRes = await app.inject({
+    method: "POST",
+    url: `/meal-goals/${goal.meal_goal_id}/plan`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-trigger" },
+    payload: {},
+  });
+  assert.equal(planRes.statusCode, 200);
+  const plan = planRes.json() as { lens_run_id: string };
+
+  const processedPlan = await runLensRunsOnce(prisma, { limit: 10, systemActorId: SYSTEM_ID, leaseSeconds: 0 });
+  assert.equal(processedPlan, 1);
+
+  const planCs = await prisma.changeSet.findUniqueOrThrow({ where: { id: plan.lens_run_id } });
+  assert.equal(planCs.baseType, "meal.plan.v1");
+
+  const applyPlanRes = await app.inject({
+    method: "POST",
+    url: `/changesets/${planCs.id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-apply" },
+    payload: { expected_version: planCs.version },
+  });
+  assert.equal(applyPlanRes.statusCode, 200);
+
+  const tasksRes = await app.inject({
+    method: "GET",
+    url: "/tasks?limit=50",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-tasks" },
+  });
+  assert.equal(tasksRes.statusCode, 200);
+  const tasks = tasksRes.json() as Array<{ task_id: string; title: string }>;
+  assert.ok(tasks.some((t) => t.title.includes("Cook Pasta Marinara")));
+  const buy = tasks.find((t) => t.title.includes("Buy ingredients for Pasta Marinara"));
+  assert.ok(buy);
+
+  await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-plan", leaseSeconds: 0 });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-plan-apply", eventType: "meal.plan.applied.v1" } });
+
+  // Completing the procurement task auto-applies an inventory delta when performed by an admin.
+  const readyBuy = await app.inject({
+    method: "POST",
+    url: `/tasks/${buy!.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-buy-ready" },
+    payload: { to_state: "ready", expected_version: 0 },
+  });
+  assert.equal(readyBuy.statusCode, 200);
+
+  const progressBuy = await app.inject({
+    method: "POST",
+    url: `/tasks/${buy!.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-buy-progress" },
+    payload: { to_state: "in_progress", expected_version: 1 },
+  });
+  assert.equal(progressBuy.statusCode, 200);
+
+  const completeBuy = await app.inject({
+    method: "POST",
+    url: `/tasks/${buy!.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-buy-complete" },
+    payload: { to_state: "completed", expected_version: 2 },
+  });
+  assert.equal(completeBuy.statusCode, 200);
+
+  const afterInv = await app.inject({
+    method: "GET",
+    url: "/inventory?limit=200",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-inv-after" },
+  });
+  assert.equal(afterInv.statusCode, 200);
+  const afterItems = afterInv.json() as Array<{ resource_name: string | null }>;
+  assert.ok(afterItems.some((x) => x.resource_name?.toLowerCase().includes("tomato sauce")));
+
+  await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-plan2", leaseSeconds: 0 });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-plan-buy-complete", eventType: "inventory.delta.applied.v1" } });
+  const deltaLogs = await prisma.eventLog.findMany({
+    where: { correlationId: "corr-plan-buy-complete", eventType: "inventory.delta.applied.v1" },
+  });
+  assert.equal(deltaLogs.length, 1);
+
+  await app.close();
+});
+
+test("non-admin completion creates pending inventory delta changeset", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const ACCOUNTABLE_ID = "00000000-0000-0000-0000-000000000013";
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-entity-na" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-add-member" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-add-acc" },
+    payload: { actor_id: ACCOUNTABLE_ID, role: "accountable" },
+  });
+
+  const sauce = await prisma.resource.upsert({
+    where: { entityId_kind_externalKey: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "tomato sauce" } },
+    create: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "tomato sauce", name: "Tomato Sauce" },
+    update: { name: "Tomato Sauce" },
+  });
+
+  const createRes = await app.inject({
+    method: "POST",
+    url: "/tasks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-na-create" },
+    payload: { type: "meal.buy", title: "Buy tomato sauce" },
+  });
+  assert.equal(createRes.statusCode, 200);
+  const created = createRes.json() as { task_id: string };
+
+  await prisma.taskSubject.create({
+    data: { entityId: ENTITY_ID, taskId: created.task_id, subjectType: "resource", subjectId: sauce.id },
+  });
+
+  const toReady = await app.inject({
+    method: "POST",
+    url: `/tasks/${created.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-na-ready" },
+    payload: { to_state: "ready", expected_version: 0 },
+  });
+  assert.equal(toReady.statusCode, 200);
+
+  const toProgress = await app.inject({
+    method: "POST",
+    url: `/tasks/${created.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-na-progress" },
+    payload: { to_state: "in_progress", expected_version: 1 },
+  });
+  assert.equal(toProgress.statusCode, 200);
+
+  const toComplete = await app.inject({
+    method: "POST",
+    url: `/tasks/${created.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ACCOUNTABLE_ID, "x-correlation-id": "corr-na-complete" },
+    payload: { to_state: "completed", expected_version: 2 },
+  });
+  assert.equal(toComplete.statusCode, 200);
+
+  // Accountable cannot apply ChangeSets, so the effects should be proposed but not applied.
+  const cs = await prisma.changeSet.findFirstOrThrow({
+    where: { taskId: created.task_id, baseType: "inventory.delta.v1", state: "pending_approval" },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const invRes = await app.inject({
+    method: "GET",
+    url: "/inventory?limit=200",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-na-inv-before" },
+  });
+  assert.equal(invRes.statusCode, 200);
+  const beforeItems = invRes.json() as Array<{ resource_name: string | null }>;
+  assert.ok(!beforeItems.some((x) => x.resource_name?.toLowerCase().includes("tomato sauce")));
+
+  const applyRes = await app.inject({
+    method: "POST",
+    url: `/changesets/${cs.id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-na-apply" },
+    payload: { expected_version: cs.version },
+  });
+  assert.equal(applyRes.statusCode, 200);
+
+  const invRes2 = await app.inject({
+    method: "GET",
+    url: "/inventory?limit=200",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-na-inv-after" },
+  });
+  assert.equal(invRes2.statusCode, 200);
+  const afterItems = invRes2.json() as Array<{ resource_name: string | null }>;
+  assert.ok(afterItems.some((x) => x.resource_name?.toLowerCase().includes("tomato sauce")));
+
+  await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-nonadmin", leaseSeconds: 0 });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-na-complete", eventType: "changeset.proposed.v1" } });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-na-apply", eventType: "inventory.delta.applied.v1" } });
+  await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-nonadmin2", leaseSeconds: 0 });
+  const appliedLogs = await prisma.eventLog.findMany({ where: { correlationId: "corr-na-apply", eventType: "inventory.delta.applied.v1" } });
+  assert.equal(appliedLogs.length, 1);
 
   await app.close();
 });

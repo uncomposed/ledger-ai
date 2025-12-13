@@ -1,4 +1,4 @@
-import type { PrismaClient, Track, TrackKind } from "@prisma/client";
+import type { Prisma, PrismaClient, Track, TrackKind } from "@prisma/client";
 import { can } from "@ledger/policy";
 import { emitOutboxEvent } from "../events/emit.js";
 import { ForbiddenError } from "../errors.js";
@@ -10,6 +10,7 @@ export async function ingestTrack(
     entityId: string;
     kind: TrackKind;
     text?: string;
+    context?: unknown;
     attachments?: Array<{
       contentType: string;
       sizeBytes: number;
@@ -30,6 +31,7 @@ export async function ingestTrack(
         kind: input.kind,
         correlationId: input.correlation.correlationId,
         text: input.text,
+        context: (input.context ?? null) as Prisma.InputJsonValue,
         status: "ingested",
         createdByActorId: input.createdBy.actorId,
       },
@@ -65,4 +67,3 @@ export async function ingestTrack(
     return track;
   });
 }
-

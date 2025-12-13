@@ -73,6 +73,7 @@ model Actor {
   changeSetsApproved ChangeSet[]  @relation("ChangeSetApprovedBy")
   tracksCreated      Track[]      @relation("TrackCreatedBy")
   answersAuthored    Answer[]     @relation("AnswerAnsweredBy")
+  mealGoalsCreated   MealGoal[]   @relation("MealGoalCreatedBy")
 }
 
 model Entity {
@@ -90,10 +91,157 @@ model Entity {
   lensRuns    LensRun[]
   questions   Question[]
   answers     Answer[]
+  resources   Resource[]
+  locations   Location[]
+  inventory   InventoryItem[]
+  inventoryMutations InventoryMutation[]
+  mealGoals   MealGoal[]
+  recipes     Recipe[]
+  taskSubjects TaskSubject[]
   outbox      EventOutbox[]
   eventLog    EventLog[]
 
   @@index([parentEntityId])
+}
+
+model Resource {
+  id          String   @id @default(uuid())
+  entityId    String
+  entity      Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  kind        String
+  externalKey String
+  name        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  inventoryItems InventoryItem[]
+  recipeIngredients RecipeIngredient[]
+  inventoryMutations InventoryMutation[]
+
+  @@unique([entityId, kind, externalKey])
+  @@index([entityId, kind])
+}
+
+model Location {
+  id        String       @id @default(uuid())
+  entityId  String
+  entity    Entity       @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  kind      String
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  items InventoryItem[]
+  inventoryMutations InventoryMutation[]
+
+  @@unique([entityId, kind, name])
+  @@index([entityId, kind])
+}
+
+model InventoryItem {
+  id         String   @id @default(uuid())
+  entityId   String
+  entity     Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  locationId String?
+  location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  quantity   Decimal? @db.Decimal(18, 6)
+  unit       String?
+  version    Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  mutations InventoryMutation[]
+
+  @@unique([entityId, resourceId, locationId])
+  @@index([entityId, locationId])
+  @@index([entityId, resourceId])
+}
+
+model InventoryMutation {
+  id            String   @id @default(uuid())
+  entityId      String
+  entity        Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  changeSetId   String
+  opIndex       Int
+  resourceId    String
+  resource      Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  locationId    String
+  location      Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  delta         Decimal  @db.Decimal(18, 6)
+  unit          String?
+  createdAt     DateTime @default(now())
+
+  @@unique([changeSetId, opIndex])
+  @@index([entityId, createdAt])
+  @@index([entityId, resourceId])
+  @@index([inventoryItemId])
+}
+
+enum MealGoalStatus {
+  open
+  planned
+  cancelled
+}
+
+model MealGoal {
+  id               String         @id @default(uuid())
+  entityId         String
+  entity           Entity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  status           MealGoalStatus @default(open)
+  text             String
+  version          Int            @default(0)
+  createdByActorId String
+  createdByActor   Actor          @relation("MealGoalCreatedBy", fields: [createdByActorId], references: [id], onDelete: Restrict)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([entityId, status])
+  @@index([entityId, createdAt])
+}
+
+model Recipe {
+  id        String   @id @default(uuid())
+  entityId  String
+  entity    Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ingredients RecipeIngredient[]
+  steps       RecipeStep[]
+
+  @@unique([entityId, name])
+  @@index([entityId])
+}
+
+model RecipeIngredient {
+  id         String   @id @default(uuid())
+  recipeId   String
+  recipe     Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  quantity   Decimal? @db.Decimal(18, 6)
+  unit       String?
+  createdAt  DateTime @default(now())
+
+  @@index([recipeId])
+  @@index([resourceId])
+}
+
+model RecipeStep {
+  id        String   @id @default(uuid())
+  recipeId  String
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  stepIndex Int
+  text      String
+  createdAt DateTime @default(now())
+
+  @@unique([recipeId, stepIndex])
+  @@index([recipeId])
 }
 
 enum MembershipRole {
@@ -136,8 +284,24 @@ model Task {
   updatedAt        DateTime    @updatedAt
   changeSets       ChangeSet[]
   questions        Question[]
+  subjects         TaskSubject[]
 
   @@index([entityId, state])
+}
+
+model TaskSubject {
+  id          String   @id @default(uuid())
+  entityId    String
+  entity      Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  subjectType String
+  subjectId   String
+  createdAt   DateTime @default(now())
+
+  @@unique([taskId, subjectType, subjectId])
+  @@index([taskId, subjectType])
+  @@index([entityId, subjectType, subjectId])
 }
 
 enum ChangeSetState {
@@ -170,6 +334,7 @@ model ChangeSet {
 
   @@index([entityId, state])
   @@index([taskId, state])
+  @@index([entityId, baseType, baseVersion])
 }
 
 enum TrackKind {
@@ -190,6 +355,7 @@ model Track {
   kind             TrackKind
   correlationId    String
   text             String?
+  context          Json?
   status           TrackStatus @default(ingested)
   createdByActorId String
   createdByActor   Actor       @relation("TrackCreatedBy", fields: [createdByActorId], references: [id], onDelete: Restrict)
@@ -235,6 +401,9 @@ model LensRun {
   track      Track         @relation(fields: [trackId], references: [id], onDelete: Cascade)
   lensKey    String
   status     LensRunStatus @default(queued)
+  claimedAt  DateTime?
+  claimedBy  String?
+  leaseUntil DateTime?
   startedAt  DateTime?
   finishedAt DateTime?
   error      String?
@@ -243,6 +412,7 @@ model LensRun {
 
   @@unique([trackId, lensKey])
   @@index([entityId, status])
+  @@index([leaseUntil])
 }
 
 enum QuestionStatus {

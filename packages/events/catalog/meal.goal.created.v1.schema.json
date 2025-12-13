@@ -1,0 +1,15 @@
+{
+  "$id": "meal.goal.created.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "meal_goal_id", "entity_id", "created_by_actor_id", "status", "text"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "meal_goal_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "created_by_actor_id": { "type": "string", "format": "uuid" },
+    "status": { "type": "string", "enum": ["open", "planned", "cancelled"] },
+    "text": { "type": "string", "minLength": 1 }
+  }
+}
+

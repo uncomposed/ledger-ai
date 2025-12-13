@@ -11,7 +11,7 @@
   "scripts": {
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --import tsx src/test/policy.test.ts"
+    "test": "node ../../scripts/run-tsx.mjs --test src/test/policy.test.ts"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

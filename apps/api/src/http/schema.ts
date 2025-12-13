@@ -15,6 +15,7 @@ export function strictObjectSchema(input: {
 export const TaskStates = ["proposed", "ready", "in_progress", "completed", "blocked", "cancelled"] as const;
 export const ChangeSetStates = ["draft", "pending_approval", "applied", "rejected"] as const;
 export const MembershipRoles = ["admin", "contributor", "accountable"] as const;
+export const MealGoalStatuses = ["open", "planned", "cancelled"] as const;
 
 export function uuidSchema(): JsonSchema {
   return { type: "string", format: "uuid" };

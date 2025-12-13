@@ -11,12 +11,12 @@
   "scripts": {
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"process.exit(0)\"",
-    "test:integration": "node --test --import tsx src/test/outbox-idempotency.test.ts",
+    "test": "node ../../scripts/run-tsx.mjs --test src/test/patch-registry.test.ts",
+    "test:integration": "node ../../scripts/run-tsx.mjs --test src/test/outbox-idempotency.test.ts && node ../../scripts/run-tsx.mjs --test src/test/task-subject.integration.test.ts && node ../../scripts/run-tsx.mjs --test src/test/inventory-delta-idempotency.integration.test.ts",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
-    "db:seed:ci": "node --import tsx prisma/seed/ci.ts",
-    "db:verify": "node --import tsx src/verify.ts"
+    "db:seed:ci": "node ../../scripts/run-tsx.mjs prisma/seed/ci.ts",
+    "db:verify": "node ../../scripts/run-tsx.mjs src/verify.ts"
   },
   "dependencies": {
     "@ledger/events": "workspace:*",

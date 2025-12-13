@@ -6,8 +6,8 @@
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"process.exit(0)\"",
-    "test:integration": "node --test --import tsx src/test/integration.test.ts",
-    "dev": "node --import tsx src/index.ts"
+    "test:integration": "node ../../scripts/run-tsx.mjs --test src/test/integration.test.ts",
+    "dev": "node ../../scripts/run-tsx.mjs src/index.ts"
   },
   "dependencies": {
     "@ledger/db": "workspace:*",

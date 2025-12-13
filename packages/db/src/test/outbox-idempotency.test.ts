@@ -28,6 +28,7 @@ test("outbox retry does not duplicate event_log rows", async () => {
       payload: {
         correlation_id: "t-idempotency",
         task_id: "00000000-0000-0000-0000-000000000010",
+        entity_id: "00000000-0000-0000-0000-000000000001",
         created_by_actor_id: "00000000-0000-0000-0000-000000000020",
         produced: { changeset_ids: [] },
       },
@@ -77,6 +78,7 @@ test("crash window after append is safe on retry", async () => {
       payload: {
         correlation_id: "t-crash-window",
         task_id: "00000000-0000-0000-0000-000000000011",
+        entity_id: "00000000-0000-0000-0000-000000000001",
         created_by_actor_id: "00000000-0000-0000-0000-000000000021",
         produced: { changeset_ids: [] },
       },

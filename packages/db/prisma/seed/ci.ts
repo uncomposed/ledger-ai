@@ -55,7 +55,7 @@ async function main() {
     eventType: "task.created.v1",
     eventVersion: 1,
     occurredAt: new Date(),
-    payload: { task_id: task.id, created_by_actor_id: actorId, produced: { changeset_ids: [] } },
+    payload: { task_id: task.id, entity_id: entityId, created_by_actor_id: actorId, produced: { changeset_ids: [] } },
   });
 }
 

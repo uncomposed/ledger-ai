@@ -1,0 +1,14 @@
+{
+  "$id": "meal.plan.applied.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "entity_id", "changeset_id", "meal_goal_id", "task_ids"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "changeset_id": { "type": "string", "format": "uuid" },
+    "meal_goal_id": { "type": "string", "format": "uuid" },
+    "task_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+  }
+}
+

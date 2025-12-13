@@ -18,10 +18,19 @@ import {
   createTask,
   proposeChangeSet,
   transitionTaskState,
+  createMealGoal,
 } from "@ledger/db";
 import { buildAuthProvider, type EntityScopedActor } from "./auth/provider.js";
 import { enforceRouteSchemas } from "./http/strict-routes.js";
-import { ChangeSetStates, MembershipRoles, TaskStates, nonNegativeIntSchema, strictObjectSchema, uuidSchema } from "./http/schema.js";
+import {
+  ChangeSetStates,
+  MealGoalStatuses,
+  MembershipRoles,
+  TaskStates,
+  nonNegativeIntSchema,
+  strictObjectSchema,
+  uuidSchema,
+} from "./http/schema.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -764,6 +773,254 @@ export function buildApp() {
         risk_level: cs.riskLevel,
         patch: cs.patch as Record<string, unknown>,
       };
+    },
+  );
+
+  app.get(
+    "/inventory",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        querystring: strictObjectSchema({
+          properties: {
+            limit: { type: "integer", minimum: 1, maximum: 500 },
+          },
+          required: [],
+        }),
+        response: {
+          200: {
+            type: "array",
+            items: strictObjectSchema({
+              properties: {
+                inventory_item_id: uuidSchema(),
+                entity_id: uuidSchema(),
+                resource_id: uuidSchema(),
+                resource_name: { type: ["string", "null"] },
+                location_id: { type: ["string", "null"], format: "uuid" },
+                location_name: { type: ["string", "null"] },
+                location_kind: { type: ["string", "null"] },
+                quantity: { type: ["string", "null"] },
+                unit: { type: ["string", "null"] },
+              },
+              required: [
+                "inventory_item_id",
+                "entity_id",
+                "resource_id",
+                "resource_name",
+                "location_id",
+                "location_name",
+                "location_kind",
+                "quantity",
+                "unit",
+              ],
+            }),
+          },
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "inventory:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+      const q = (req.query ?? {}) as { limit?: number };
+      const limit = q.limit ?? 200;
+
+      const rows = await app.prisma.inventoryItem.findMany({
+        where: { entityId: actor.entityId },
+        include: { resource: true, location: true },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+
+      return rows.map((x) => ({
+        inventory_item_id: x.id,
+        entity_id: x.entityId,
+        resource_id: x.resourceId,
+        resource_name: x.resource.name ?? null,
+        location_id: x.locationId,
+        location_name: x.location?.name ?? null,
+        location_kind: x.location?.kind ?? null,
+        quantity: x.quantity ? x.quantity.toString() : null,
+        unit: x.unit ?? null,
+      }));
+    },
+  );
+
+  app.get(
+    "/inventory/:inventoryItemId",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { inventoryItemId: uuidSchema() }, required: ["inventoryItemId"] }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              inventory_item_id: uuidSchema(),
+              entity_id: uuidSchema(),
+              resource_id: uuidSchema(),
+              resource_name: { type: ["string", "null"] },
+              location_id: { type: ["string", "null"], format: "uuid" },
+              location_name: { type: ["string", "null"] },
+              location_kind: { type: ["string", "null"] },
+              quantity: { type: ["string", "null"] },
+              unit: { type: ["string", "null"] },
+            },
+            required: [
+              "inventory_item_id",
+              "entity_id",
+              "resource_id",
+              "resource_name",
+              "location_id",
+              "location_name",
+              "location_kind",
+              "quantity",
+              "unit",
+            ],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "inventory:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+      const params = req.params as { inventoryItemId: string };
+
+      const row = await app.prisma.inventoryItem.findFirst({
+        where: { id: params.inventoryItemId, entityId: actor.entityId },
+        include: { resource: true, location: true },
+      });
+      if (!row) throw new NotFoundError("InventoryItem not found");
+
+      return {
+        inventory_item_id: row.id,
+        entity_id: row.entityId,
+        resource_id: row.resourceId,
+        resource_name: row.resource.name ?? null,
+        location_id: row.locationId,
+        location_name: row.location?.name ?? null,
+        location_kind: row.location?.kind ?? null,
+        quantity: row.quantity ? row.quantity.toString() : null,
+        unit: row.unit ?? null,
+      };
+    },
+  );
+
+  app.post(
+    "/meal-goals",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        body: strictObjectSchema({ properties: { text: { type: "string", minLength: 1 } }, required: ["text"] }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              meal_goal_id: uuidSchema(),
+              status: { type: "string", enum: [...MealGoalStatuses] },
+              version: nonNegativeIntSchema(),
+            },
+            required: ["meal_goal_id", "status", "version"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "meal:write", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+      const body = req.body as { text: string };
+      const correlationId = req.correlationId;
+
+      const goal = await createMealGoal(app.prisma, {
+        entityId: actor.entityId,
+        text: body.text,
+        createdBy: actor,
+        correlation: { correlationId },
+      });
+
+      return { meal_goal_id: goal.id, status: goal.status, version: goal.version };
+    },
+  );
+
+  app.post(
+    "/meal-goals/:mealGoalId/plan",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { mealGoalId: uuidSchema() }, required: ["mealGoalId"] }),
+        body: strictObjectSchema({ properties: {}, required: [] }),
+        response: {
+          200: strictObjectSchema({
+            properties: { track_id: uuidSchema(), lens_run_id: uuidSchema() },
+            required: ["track_id", "lens_run_id"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "meal:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+
+      const params = req.params as { mealGoalId: string };
+      const correlationId = req.correlationId;
+
+      const goal = await app.prisma.mealGoal.findFirst({ where: { id: params.mealGoalId, entityId: actor.entityId } });
+      if (!goal) throw new NotFoundError("MealGoal not found");
+
+      const track = await ingestTrack(app.prisma, {
+        entityId: actor.entityId,
+        kind: "text",
+        text: goal.text,
+        context: { meal_goal_id: goal.id },
+        createdBy: actor,
+        correlation: { correlationId },
+      });
+
+      const lensRun = await ensureLensRun(app.prisma, {
+        trackId: track.id,
+        lensKey: "meal_plan_v1",
+        actor,
+        correlation: { correlationId },
+      });
+
+      return { track_id: track.id, lens_run_id: lensRun.id };
+    },
+  );
+
+  app.get(
+    "/meal-goals",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        response: {
+          200: {
+            type: "array",
+            items: strictObjectSchema({
+              properties: {
+                meal_goal_id: uuidSchema(),
+                status: { type: "string", enum: [...MealGoalStatuses] },
+                version: nonNegativeIntSchema(),
+                text: { type: "string" },
+              },
+              required: ["meal_goal_id", "status", "version", "text"],
+            }),
+          },
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "meal:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+
+      const rows = await app.prisma.mealGoal.findMany({
+        where: { entityId: actor.entityId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+
+      return rows.map((g) => ({ meal_goal_id: g.id, status: g.status, version: g.version, text: g.text }));
     },
   );
 
