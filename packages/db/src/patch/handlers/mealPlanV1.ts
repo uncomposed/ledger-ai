@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { emitOutboxEvent } from "../../events/emit.js";
 import { ForbiddenError } from "../../errors.js";
 import type { PatchHandler } from "../types.js";
+import { ensureTaskSubject } from "../../subjects/taskSubject.js";
 
 function asObject(v: unknown): Record<string, unknown> {
   if (typeof v !== "object" || v === null || Array.isArray(v)) throw new Error("patch must be an object");
@@ -91,18 +92,10 @@ export const mealPlanV1: PatchHandler = {
       const taskId = createdTaskIds[i]!;
       const t = tasks[i]!;
 
-      await tx.taskSubject.upsert({
-        where: { taskId_subjectType_subjectId: { taskId, subjectType: "meal.goal", subjectId: goal.id } },
-        create: { entityId: ctx.entityId, taskId, subjectType: "meal.goal", subjectId: goal.id },
-        update: {},
-      });
+      await ensureTaskSubject(tx, { entityId: ctx.entityId, taskId, subjectType: "meal.goal", subjectId: goal.id });
 
       for (const resourceId of t.resource_ids) {
-        await tx.taskSubject.upsert({
-          where: { taskId_subjectType_subjectId: { taskId, subjectType: "resource", subjectId: resourceId } },
-          create: { entityId: ctx.entityId, taskId, subjectType: "resource", subjectId: resourceId },
-          update: {},
-        });
+        await ensureTaskSubject(tx, { entityId: ctx.entityId, taskId, subjectType: "resource", subjectId: resourceId });
       }
     }
 
