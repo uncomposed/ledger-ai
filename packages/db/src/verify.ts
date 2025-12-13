@@ -30,6 +30,7 @@ async function main() {
     "TrackAttachment_trackId_idx",
     "LensRun_trackId_lensKey_key",
     "LensRun_entityId_status_idx",
+    "LensRun_leaseUntil_idx",
     "Question_entityId_status_idx",
     "Answer_questionId_key",
     "Resource_entityId_kind_idx",

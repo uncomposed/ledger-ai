@@ -250,6 +250,9 @@ model LensRun {
   track      Track         @relation(fields: [trackId], references: [id], onDelete: Cascade)
   lensKey    String
   status     LensRunStatus @default(queued)
+  claimedAt  DateTime?
+  claimedBy  String?
+  leaseUntil DateTime?
   startedAt  DateTime?
   finishedAt DateTime?
   error      String?
@@ -258,6 +261,7 @@ model LensRun {
 
   @@unique([trackId, lensKey])
   @@index([entityId, status])
+  @@index([leaseUntil])
 }
 
 enum QuestionStatus {

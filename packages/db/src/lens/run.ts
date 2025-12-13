@@ -8,6 +8,40 @@ import { ConflictError } from "../errors.js";
 import { resolveActorContext } from "../auth/resolve.js";
 import type { ActorContext } from "../commands/types.js";
 
+type ClaimedLensRunRow = {
+  id: string;
+  entityId: string;
+  trackId: string;
+  lensKey: string;
+};
+
+async function claimLensRuns(
+  prisma: PrismaClient,
+  opts: { limit: number; workerId: string; leaseSeconds: number },
+): Promise<ClaimedLensRunRow[]> {
+  const rows = (await prisma.$queryRaw`
+    with claim as (
+      select id
+      from "LensRun"
+      where status = 'queued'
+        and ("leaseUntil" is null or "leaseUntil" <= now())
+      order by "createdAt" asc
+      for update skip locked
+      limit ${opts.limit}
+    )
+    update "LensRun" r
+    set
+      "claimedAt" = now(),
+      "claimedBy" = ${opts.workerId},
+      "leaseUntil" = now() + (${opts.leaseSeconds} * interval '1 second')
+    from claim
+    where r.id = claim.id
+    returning r.id, r."entityId", r."trackId", r."lensKey"
+  `) as ClaimedLensRunRow[];
+
+  return rows;
+}
+
 type LensContext = {
   prisma: PrismaClient;
   lensRun: LensRun;
@@ -84,13 +118,11 @@ async function runLens(ctx: LensContext) {
 
 export async function runLensRunsOnce(
   prisma: PrismaClient,
-  opts: { limit: number; systemActorId: string },
+  opts: { limit: number; systemActorId: string; workerId?: string; leaseSeconds?: number },
 ): Promise<number> {
-  const runs = await prisma.lensRun.findMany({
-    where: { status: "queued" },
-    orderBy: { createdAt: "asc" },
-    take: opts.limit,
-  });
+  const workerId = opts.workerId ?? `lens-${process.pid}`;
+  const leaseSeconds = opts.leaseSeconds ?? 30;
+  const runs = await claimLensRuns(prisma, { limit: opts.limit, workerId, leaseSeconds });
 
   let processed = 0;
 
@@ -105,10 +137,11 @@ export async function runLensRunsOnce(
       throw e;
     }
 
+    const lensRun = await prisma.lensRun.findUniqueOrThrow({ where: { id: run.id } });
     const track = await prisma.track.findUnique({ where: { id: run.trackId } });
     if (!track) {
       await completeLensRun(prisma, {
-        lensRunId: run.id,
+        lensRunId: lensRun.id,
         status: "failed",
         error: "Track missing",
         actor: system,
@@ -118,14 +151,19 @@ export async function runLensRunsOnce(
     }
 
     try {
-      await runLens({ prisma, lensRun: run, track, systemActorId: opts.systemActorId, system });
+      await runLens({ prisma, lensRun, track, systemActorId: opts.systemActorId, system });
 
       await prisma.track.update({
         where: { id: track.id },
         data: { status: "processed", processedAt: new Date(), error: null },
       });
 
-      await completeLensRun(prisma, { lensRunId: run.id, status: "succeeded", actor: system, correlation: { correlationId } });
+      await completeLensRun(prisma, {
+        lensRunId: lensRun.id,
+        status: "succeeded",
+        actor: system,
+        correlation: { correlationId },
+      });
       processed += 1;
     } catch (err) {
       const message = String((err as any)?.message ?? err);
@@ -134,7 +172,7 @@ export async function runLensRunsOnce(
         data: { status: "failed", processedAt: new Date(), error: message },
       });
       await completeLensRun(prisma, {
-        lensRunId: run.id,
+        lensRunId: lensRun.id,
         status: "failed",
         error: message,
         actor: system,

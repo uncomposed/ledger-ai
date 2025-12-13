@@ -96,7 +96,12 @@ export async function completeLensRun(
 
     const updated = await tx.lensRun.updateMany({
       where: { id: run.id, status: "running" },
-      data: { status: nextStatus, finishedAt: new Date(), error: input.error ?? null },
+      data: {
+        status: nextStatus,
+        finishedAt: new Date(),
+        error: input.error ?? null,
+        leaseUntil: null,
+      },
     });
     if (updated.count !== 1) throw new ConflictError("LensRun not running");
 
@@ -121,4 +126,3 @@ export async function completeLensRun(
     return next;
   });
 }
-
