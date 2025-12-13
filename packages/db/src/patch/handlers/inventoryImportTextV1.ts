@@ -50,8 +50,8 @@ export const inventoryImportTextV1: PatchHandler = {
     if (track.entityId !== ctx.entityId) throw new ForbiddenError("Cross-entity access denied");
 
     const location = await tx.location.upsert({
-      where: { entityId_kind_name: { entityId: ctx.entityId, kind: "pantry", name: "Pantry" } },
-      create: { entityId: ctx.entityId, kind: "pantry", name: "Pantry" },
+      where: { entityId_kind_name: { entityId: ctx.entityId, kind: "kitchen.pantry", name: "Pantry" } },
+      create: { entityId: ctx.entityId, kind: "kitchen.pantry", name: "Pantry" },
       update: {},
     });
 

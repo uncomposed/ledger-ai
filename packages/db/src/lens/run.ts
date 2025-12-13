@@ -50,6 +50,89 @@ type LensContext = {
   system: ActorContext;
 };
 
+function contextObject(track: Track): Record<string, unknown> {
+  const v = track.context as unknown;
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
+  return v as Record<string, unknown>;
+}
+
+async function runMealPlanV1(ctx: LensContext) {
+  const ctxObj = contextObject(ctx.track);
+  const mealGoalId = typeof ctxObj.meal_goal_id === "string" ? ctxObj.meal_goal_id : "";
+  if (!mealGoalId) {
+    await createQuestion(ctx.prisma, {
+      entityId: ctx.lensRun.entityId,
+      trackId: ctx.track.id,
+      prompt: "Meal planning track is missing meal_goal_id context.",
+      context: { lens_key: ctx.lensRun.lensKey },
+      actor: ctx.system,
+      correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
+    });
+    return;
+  }
+
+  const goal = await ctx.prisma.mealGoal.findUnique({ where: { id: mealGoalId } });
+  if (!goal || goal.entityId !== ctx.lensRun.entityId) {
+    await createQuestion(ctx.prisma, {
+      entityId: ctx.lensRun.entityId,
+      trackId: ctx.track.id,
+      prompt: "Meal goal not found for planning request.",
+      context: { lens_key: ctx.lensRun.lensKey, meal_goal_id: mealGoalId },
+      actor: ctx.system,
+      correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
+    });
+    return;
+  }
+
+  const task = await createTask(ctx.prisma, {
+    entityId: ctx.lensRun.entityId,
+    taskId: ctx.lensRun.id,
+    type: "track.lens.meal_plan_v1",
+    title: "Review meal plan proposals",
+    createdBy: ctx.system,
+    correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
+  });
+
+  const recipes = await ctx.prisma.recipe.findMany({
+    where: { entityId: ctx.lensRun.entityId },
+    include: { ingredients: { include: { resource: true } } },
+    orderBy: { createdAt: "asc" },
+    take: 20,
+  });
+
+  const inventory = await ctx.prisma.inventoryItem.findMany({
+    where: { entityId: ctx.lensRun.entityId },
+    include: { resource: true },
+    take: 500,
+  });
+  const have = new Set(inventory.map((x) => x.resource.externalKey ?? "").filter(Boolean));
+
+  const choose = recipes.find((r) => r.ingredients.every((i) => have.has(i.resource.externalKey ?? ""))) ?? recipes[0];
+
+  const plannedTasks: Array<{ type: string; title: string }> = [];
+  if (!choose) {
+    plannedTasks.push({ type: "meal.plan", title: `Choose a recipe for: ${goal.text}` });
+    plannedTasks.push({ type: "meal.cook", title: `Cook: ${goal.text}` });
+  } else {
+    const missing = choose.ingredients
+      .map((i) => i.resource.externalKey ?? "")
+      .filter((k) => k && !have.has(k));
+    if (missing.length) plannedTasks.push({ type: "meal.buy", title: `Buy ingredients for ${choose.name}` });
+    plannedTasks.push({ type: "meal.cook", title: `Cook ${choose.name}` });
+  }
+
+  await proposeChangeSet(ctx.prisma, {
+    taskId: task.id,
+    changeSetId: ctx.lensRun.id,
+    baseType: "meal.plan.v1",
+    baseVersion: 1,
+    riskLevel: "low",
+    patch: { meal_goal_id: goal.id, tasks: plannedTasks },
+    actor: ctx.system,
+    correlation: { correlationId: `lensrun:${ctx.lensRun.id}` },
+  });
+}
+
 async function runPantryTextV1(ctx: LensContext) {
   const text = ctx.track.text ?? "";
   const lines = text
@@ -105,6 +188,7 @@ async function runImageStubV1(ctx: LensContext) {
 async function runLens(ctx: LensContext) {
   if (ctx.lensRun.lensKey === "pantry_text_v1") return runPantryTextV1(ctx);
   if (ctx.lensRun.lensKey === "image_stub_v1") return runImageStubV1(ctx);
+  if (ctx.lensRun.lensKey === "meal_plan_v1") return runMealPlanV1(ctx);
   await createQuestion(ctx.prisma, {
     entityId: ctx.lensRun.entityId,
     trackId: ctx.track.id,

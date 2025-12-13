@@ -934,6 +934,52 @@ export function buildApp() {
     },
   );
 
+  app.post(
+    "/meal-goals/:mealGoalId/plan",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { mealGoalId: uuidSchema() }, required: ["mealGoalId"] }),
+        body: strictObjectSchema({ properties: {}, required: [] }),
+        response: {
+          200: strictObjectSchema({
+            properties: { track_id: uuidSchema(), lens_run_id: uuidSchema() },
+            required: ["track_id", "lens_run_id"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "meal:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+
+      const params = req.params as { mealGoalId: string };
+      const correlationId = req.correlationId;
+
+      const goal = await app.prisma.mealGoal.findFirst({ where: { id: params.mealGoalId, entityId: actor.entityId } });
+      if (!goal) throw new NotFoundError("MealGoal not found");
+
+      const track = await ingestTrack(app.prisma, {
+        entityId: actor.entityId,
+        kind: "text",
+        text: goal.text,
+        context: { meal_goal_id: goal.id },
+        createdBy: actor,
+        correlation: { correlationId },
+      });
+
+      const lensRun = await ensureLensRun(app.prisma, {
+        trackId: track.id,
+        lensKey: "meal_plan_v1",
+        actor,
+        correlation: { correlationId },
+      });
+
+      return { track_id: track.id, lens_run_id: lensRun.id };
+    },
+  );
+
   app.get(
     "/meal-goals",
     {

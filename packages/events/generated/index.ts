@@ -6,6 +6,7 @@ export const EVENT_TYPES = [
   "lens.run.completed.v1",
   "lens.run.started.v1",
   "meal.goal.created.v1",
+  "meal.plan.applied.v1",
   "membership.added.v1",
   "membership.role_changed.v1",
   "question.answered.v1",

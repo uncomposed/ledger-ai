@@ -6,7 +6,7 @@
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"process.exit(0)\"",
-    "dev": "node --import tsx src/index.ts"
+    "dev": "node ../../scripts/run-tsx.mjs src/index.ts"
   },
   "dependencies": {
     "@ledger/db": "workspace:*",

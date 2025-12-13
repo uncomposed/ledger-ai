@@ -675,7 +675,7 @@ test("lens run processes track and produces approval-queue proposal (idempotent)
   const items = invRes.json() as Array<{ resource_name: string | null; location_kind: string | null }>;
   assert.ok(items.length >= 2);
   assert.ok(items.some((x) => x.resource_name?.toLowerCase().includes("milk")));
-  assert.ok(items.some((x) => x.location_kind === "pantry"));
+  assert.ok(items.some((x) => x.location_kind === "kitchen.pantry"));
 
   await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-lens", leaseSeconds: 0 });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: `lensrun:${lens_run_id}`, eventType: "lens.run.completed.v1" } });
@@ -726,6 +726,125 @@ test("meal goals can be created and listed (and emit event)", async () => {
 
   await publishOutboxOnce(prisma, { limit: 200, workerId: "api-test-meal", leaseSeconds: 0 });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-meal-create", eventType: "meal.goal.created.v1" } });
+
+  await app.close();
+});
+
+test("meal goal planning produces a plan changeset and applying it creates tasks", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-add" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  // Seed a minimal recipe (entity-scoped) with ingredients matching inventory.import_text externalKeys.
+  const pasta = await prisma.resource.upsert({
+    where: { entityId_kind_externalKey: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "pasta" } },
+    create: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "pasta", name: "Pasta" },
+    update: { name: "Pasta" },
+  });
+
+  const sauce = await prisma.resource.upsert({
+    where: { entityId_kind_externalKey: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "tomato sauce" } },
+    create: { entityId: ENTITY_ID, kind: "inventory.item", externalKey: "tomato sauce", name: "Tomato Sauce" },
+    update: { name: "Tomato Sauce" },
+  });
+
+  const recipe = await prisma.recipe.create({ data: { entityId: ENTITY_ID, name: "Pasta Marinara" } });
+  await prisma.recipeIngredient.createMany({
+    data: [
+      { recipeId: recipe.id, resourceId: pasta.id },
+      { recipeId: recipe.id, resourceId: sauce.id },
+    ],
+  });
+  await prisma.recipeStep.createMany({
+    data: [
+      { recipeId: recipe.id, stepIndex: 0, text: "Boil pasta." },
+      { recipeId: recipe.id, stepIndex: 1, text: "Warm sauce and combine." },
+    ],
+  });
+
+  // Ingest inventory list containing only pasta.
+  const invTrackRes = await app.inject({
+    method: "POST",
+    url: "/tracks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-inv-track" },
+    payload: { kind: "text", text: "pasta" },
+  });
+  assert.equal(invTrackRes.statusCode, 200);
+  const invLens = invTrackRes.json() as { lens_run_id: string };
+
+  const SYSTEM_ID = "00000000-0000-0000-0000-000000000100";
+  const processedInv = await runLensRunsOnce(prisma, { limit: 10, systemActorId: SYSTEM_ID, leaseSeconds: 0 });
+  assert.equal(processedInv, 1);
+
+  const invCs = await prisma.changeSet.findUniqueOrThrow({ where: { id: invLens.lens_run_id } });
+  const invApplyRes = await app.inject({
+    method: "POST",
+    url: `/changesets/${invCs.id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-inv-apply" },
+    payload: { expected_version: invCs.version },
+  });
+  assert.equal(invApplyRes.statusCode, 200);
+
+  const mealRes = await app.inject({
+    method: "POST",
+    url: "/meal-goals",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-goal" },
+    payload: { text: "Cook something easy" },
+  });
+  assert.equal(mealRes.statusCode, 200);
+  const goal = mealRes.json() as { meal_goal_id: string };
+
+  const planRes = await app.inject({
+    method: "POST",
+    url: `/meal-goals/${goal.meal_goal_id}/plan`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-trigger" },
+    payload: {},
+  });
+  assert.equal(planRes.statusCode, 200);
+  const plan = planRes.json() as { lens_run_id: string };
+
+  const processedPlan = await runLensRunsOnce(prisma, { limit: 10, systemActorId: SYSTEM_ID, leaseSeconds: 0 });
+  assert.equal(processedPlan, 1);
+
+  const planCs = await prisma.changeSet.findUniqueOrThrow({ where: { id: plan.lens_run_id } });
+  assert.equal(planCs.baseType, "meal.plan.v1");
+
+  const applyPlanRes = await app.inject({
+    method: "POST",
+    url: `/changesets/${planCs.id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-apply" },
+    payload: { expected_version: planCs.version },
+  });
+  assert.equal(applyPlanRes.statusCode, 200);
+
+  const tasksRes = await app.inject({
+    method: "GET",
+    url: "/tasks?limit=50",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-tasks" },
+  });
+  assert.equal(tasksRes.statusCode, 200);
+  const tasks = tasksRes.json() as Array<{ title: string }>;
+  assert.ok(tasks.some((t) => t.title.includes("Cook Pasta Marinara")));
+  assert.ok(tasks.some((t) => t.title.includes("Buy ingredients for Pasta Marinara")));
+
+  await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-plan", leaseSeconds: 0 });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-plan-apply", eventType: "meal.plan.applied.v1" } });
 
   await app.close();
 });
