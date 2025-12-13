@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -69,6 +69,7 @@ jobs:
       - run: pnpm db:seed:ci
       - run: pnpm db:verify
       - run: pnpm -C packages/db test:integration
+      - run: pnpm -C apps/api test:integration
 
   event_schema_validate:
     name: event_schema_validate
@@ -77,7 +78,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -93,7 +94,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 9.15.0
       - uses: actions/setup-node@v4
         with:
           node-version: 20

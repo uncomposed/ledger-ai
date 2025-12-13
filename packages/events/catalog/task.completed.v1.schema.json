@@ -2,8 +2,9 @@
   "$id": "task.completed.v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["task_id", "completed_by_actor_id", "produced"],
+  "required": ["correlation_id", "task_id", "completed_by_actor_id", "produced"],
   "properties": {
+    "correlation_id": { "type": "string" },
     "task_id": { "type": "string", "format": "uuid" },
     "completed_by_actor_id": { "type": "string", "format": "uuid" },
     "completion_artifacts": {
@@ -29,4 +30,3 @@
     }
   }
 }
-

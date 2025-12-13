@@ -6,15 +6,14 @@
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"process.exit(0)\"",
+    "test:integration": "node --test --loader tsx src/test/integration.test.ts",
     "dev": "node --loader tsx src/index.ts"
   },
   "dependencies": {
     "@ledger/db": "workspace:*",
     "@ledger/observability": "workspace:*",
     "@ledger/policy": "workspace:*",
-    "fastify": "^5.3.0",
-    "fastify-type-provider-zod": "^5.1.0",
-    "zod": "^3.25.76"
+    "fastify": "^4.29.1"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

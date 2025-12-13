@@ -5,22 +5,28 @@ export async function emitOutboxEvent(
   prisma: PrismaClient,
   args: {
     entityId: string;
+    correlationId: string;
     eventType: EventType;
     eventVersion: number;
     occurredAt: Date;
-    payload: unknown;
+    payload: Record<string, unknown>;
   },
 ) {
-  assertEventPayload(args.eventType, args.payload);
+  const payload = {
+    correlation_id: args.correlationId,
+    ...args.payload,
+  };
+
+  assertEventPayload(args.eventType, payload);
 
   return prisma.eventOutbox.create({
     data: {
       entityId: args.entityId,
+      correlationId: args.correlationId,
       eventType: args.eventType,
       eventVersion: args.eventVersion,
       occurredAt: args.occurredAt,
-      payload: args.payload as Prisma.InputJsonValue,
+      payload: payload as Prisma.InputJsonValue,
     },
   });
 }
-

@@ -1,20 +1,23 @@
 {
-  "$id": "task.created.v1",
+  "$id": "changeset.proposed.v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["correlation_id", "task_id", "created_by_actor_id", "produced"],
+  "required": ["correlation_id", "changeset_id", "task_id", "entity_id", "proposed_by_actor_id", "risk_level", "produced"],
   "properties": {
     "correlation_id": { "type": "string" },
+    "changeset_id": { "type": "string", "format": "uuid" },
     "task_id": { "type": "string", "format": "uuid" },
-    "created_by_actor_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "proposed_by_actor_id": { "type": "string", "format": "uuid" },
+    "risk_level": { "type": "string" },
     "produced": {
       "type": "object",
       "additionalProperties": false,
       "required": ["changeset_ids"],
       "properties": {
-        "answer_id": { "type": ["string", "null"], "format": "uuid" },
         "changeset_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
       }
     }
   }
 }
+

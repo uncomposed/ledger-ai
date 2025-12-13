@@ -17,10 +17,13 @@ async function main() {
   const required = [
     "EventOutbox_publishedAt_idx",
     "EventOutbox_leaseUntil_idx",
+    "EventOutbox_correlationId_idx",
     "EventLog_entityId_occurredAt_idx",
     "EventLog_outboxId_key",
+    "EventLog_correlationId_idx",
     "Task_entityId_state_idx",
     "ChangeSet_entityId_state_idx",
+    "ChangeSet_taskId_state_idx",
   ];
 
   const have = new Set(indexes.map((x) => x.indexname));

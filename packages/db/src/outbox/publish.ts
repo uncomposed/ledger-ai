@@ -3,6 +3,7 @@ import type { Prisma, PrismaClient } from "@prisma/client";
 type ClaimedOutboxRow = {
   id: string;
   entityId: string;
+  correlationId: string;
   eventType: string;
   eventVersion: number;
   occurredAt: Date;
@@ -34,6 +35,7 @@ async function claimOutboxRows(
     returning
       o.id,
       o."entityId",
+      o."correlationId",
       o."eventType",
       o."eventVersion",
       o."occurredAt",
@@ -68,6 +70,7 @@ export async function publishOutboxOnce(
         create: {
           outboxId: row.id,
           entityId: row.entityId,
+          correlationId: row.correlationId,
           eventType: row.eventType,
           eventVersion: row.eventVersion,
           occurredAt: row.occurredAt,

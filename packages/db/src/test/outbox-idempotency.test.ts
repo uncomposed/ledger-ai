@@ -18,10 +18,16 @@ test("outbox retry does not duplicate event_log rows", async () => {
   const outbox = await prisma.eventOutbox.create({
     data: {
       entityId: "00000000-0000-0000-0000-000000000001",
+      correlationId: "t-idempotency",
       eventType: "task.created.v1",
       eventVersion: 1,
       occurredAt: new Date(),
-      payload: { task_id: "00000000-0000-0000-0000-000000000010", created_by_actor_id: "00000000-0000-0000-0000-000000000020", produced: { changeset_ids: [] } },
+      payload: {
+        correlation_id: "t-idempotency",
+        task_id: "00000000-0000-0000-0000-000000000010",
+        created_by_actor_id: "00000000-0000-0000-0000-000000000020",
+        produced: { changeset_ids: [] },
+      },
     },
   });
 
@@ -29,6 +35,7 @@ test("outbox retry does not duplicate event_log rows", async () => {
     data: {
       outboxId: outbox.id,
       entityId: outbox.entityId,
+      correlationId: outbox.correlationId,
       eventType: outbox.eventType,
       eventVersion: outbox.eventVersion,
       occurredAt: outbox.occurredAt,
@@ -57,10 +64,12 @@ test("crash window after append is safe on retry", async () => {
   const outbox = await prisma.eventOutbox.create({
     data: {
       entityId: "00000000-0000-0000-0000-000000000001",
+      correlationId: "t-crash-window",
       eventType: "task.created.v1",
       eventVersion: 1,
       occurredAt: new Date(),
       payload: {
+        correlation_id: "t-crash-window",
         task_id: "00000000-0000-0000-0000-000000000011",
         created_by_actor_id: "00000000-0000-0000-0000-000000000021",
         produced: { changeset_ids: [] },
