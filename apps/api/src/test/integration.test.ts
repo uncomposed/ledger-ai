@@ -655,9 +655,32 @@ test("lens run processes track and produces approval-queue proposal (idempotent)
   const queue = queueRes.json() as Array<{ changeset_id: string; base_type: string }>;
   assert.ok(queue.some((x) => x.changeset_id === lens_run_id && x.base_type === "inventory.import_text.v1"));
 
+  const cs = await prisma.changeSet.findUniqueOrThrow({ where: { id: lens_run_id } });
+  assert.equal(cs.state, "pending_approval");
+
+  const applyRes = await app.inject({
+    method: "POST",
+    url: `/changesets/${lens_run_id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-inv-apply" },
+    payload: { expected_version: cs.version },
+  });
+  assert.equal(applyRes.statusCode, 200);
+
+  const invRes = await app.inject({
+    method: "GET",
+    url: "/inventory",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-inv-list" },
+  });
+  assert.equal(invRes.statusCode, 200);
+  const items = invRes.json() as Array<{ resource_name: string | null; location_kind: string | null }>;
+  assert.ok(items.length >= 2);
+  assert.ok(items.some((x) => x.resource_name?.toLowerCase().includes("milk")));
+  assert.ok(items.some((x) => x.location_kind === "pantry"));
+
   await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-lens", leaseSeconds: 0 });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: `lensrun:${lens_run_id}`, eventType: "lens.run.completed.v1" } });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: `lensrun:${lens_run_id}`, eventType: "changeset.proposed.v1" } });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-inv-apply", eventType: "inventory.import_text.applied.v1" } });
 
   await app.close();
 });

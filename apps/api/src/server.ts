@@ -767,6 +767,128 @@ export function buildApp() {
     },
   );
 
+  app.get(
+    "/inventory",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        response: {
+          200: {
+            type: "array",
+            items: strictObjectSchema({
+              properties: {
+                inventory_item_id: uuidSchema(),
+                entity_id: uuidSchema(),
+                resource_id: uuidSchema(),
+                resource_name: { type: ["string", "null"] },
+                location_id: { type: ["string", "null"], format: "uuid" },
+                location_name: { type: ["string", "null"] },
+                location_kind: { type: ["string", "null"], enum: ["pantry", "fridge", "freezer", "counter", null] },
+                quantity: { type: ["string", "null"] },
+                unit: { type: ["string", "null"] },
+              },
+              required: [
+                "inventory_item_id",
+                "entity_id",
+                "resource_id",
+                "resource_name",
+                "location_id",
+                "location_name",
+                "location_kind",
+                "quantity",
+                "unit",
+              ],
+            }),
+          },
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "inventory:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+
+      const rows = await app.prisma.inventoryItem.findMany({
+        where: { entityId: actor.entityId },
+        include: { resource: true, location: true },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+      });
+
+      return rows.map((x) => ({
+        inventory_item_id: x.id,
+        entity_id: x.entityId,
+        resource_id: x.resourceId,
+        resource_name: x.resource.name ?? null,
+        location_id: x.locationId,
+        location_name: x.location?.name ?? null,
+        location_kind: x.location?.kind ?? null,
+        quantity: x.quantity ? x.quantity.toString() : null,
+        unit: x.unit ?? null,
+      }));
+    },
+  );
+
+  app.get(
+    "/inventory/:inventoryItemId",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { inventoryItemId: uuidSchema() }, required: ["inventoryItemId"] }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              inventory_item_id: uuidSchema(),
+              entity_id: uuidSchema(),
+              resource_id: uuidSchema(),
+              resource_name: { type: ["string", "null"] },
+              location_id: { type: ["string", "null"], format: "uuid" },
+              location_name: { type: ["string", "null"] },
+              location_kind: { type: ["string", "null"], enum: ["pantry", "fridge", "freezer", "counter", null] },
+              quantity: { type: ["string", "null"] },
+              unit: { type: ["string", "null"] },
+            },
+            required: [
+              "inventory_item_id",
+              "entity_id",
+              "resource_id",
+              "resource_name",
+              "location_id",
+              "location_name",
+              "location_kind",
+              "quantity",
+              "unit",
+            ],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "inventory:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+      const params = req.params as { inventoryItemId: string };
+
+      const row = await app.prisma.inventoryItem.findFirst({
+        where: { id: params.inventoryItemId, entityId: actor.entityId },
+        include: { resource: true, location: true },
+      });
+      if (!row) throw new NotFoundError("InventoryItem not found");
+
+      return {
+        inventory_item_id: row.id,
+        entity_id: row.entityId,
+        resource_id: row.resourceId,
+        resource_name: row.resource.name ?? null,
+        location_id: row.locationId,
+        location_name: row.location?.name ?? null,
+        location_kind: row.location?.kind ?? null,
+        quantity: row.quantity ? row.quantity.toString() : null,
+        unit: row.unit ?? null,
+      };
+    },
+  );
+
   return app;
 }
 

@@ -11,6 +11,7 @@ export type PolicyAction =
   | "question:read"
   | "question:ask"
   | "question:answer"
+  | "inventory:read"
   | "membership:read"
   | "membership:write"
   | "admin:manage";
@@ -34,6 +35,7 @@ export function can(actor: Actor, action: PolicyAction, resource: { entityId: st
     case "question:read":
     case "question:ask":
     case "question:answer":
+    case "inventory:read":
       return actor.role === "contributor" || actor.role === "accountable";
     case "changeset:apply":
     case "membership:read":
