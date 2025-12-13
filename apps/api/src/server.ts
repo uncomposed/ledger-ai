@@ -7,7 +7,6 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
-  resolveActorContext,
   createEntity,
   addMembership,
   changeMembershipRole,
@@ -16,13 +15,19 @@ import {
   proposeChangeSet,
   transitionTaskState,
 } from "@ledger/db";
-import { getActorFromHeaders, getActorIdFromHeaders } from "./http/auth.js";
+import { buildAuthProvider, type EntityScopedActor } from "./auth/provider.js";
 import { enforceRouteSchemas } from "./http/strict-routes.js";
 import { ChangeSetStates, MembershipRoles, TaskStates, nonNegativeIntSchema, strictObjectSchema, uuidSchema } from "./http/schema.js";
 
 declare module "fastify" {
   interface FastifyInstance {
     prisma: PrismaClient;
+  }
+
+  interface FastifyRequest {
+    actorId?: string;
+    actor?: EntityScopedActor;
+    correlationId: string;
   }
 }
 
@@ -42,6 +47,19 @@ export function buildApp() {
 
   enforceRouteSchemas(app);
 
+  const authProvider = buildAuthProvider(app.prisma);
+
+  app.addHook("preHandler", async (req) => {
+    req.correlationId = req.id;
+    const mode = (req.routeOptions.config as any)?.auth as "public" | "actor" | "entity";
+    if (mode === "public") return;
+    if (mode === "actor") {
+      req.actorId = authProvider.actorIdFromRequest(req);
+      return;
+    }
+    req.actor = await authProvider.entityScopedActorFromRequest(req);
+  });
+
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof NotFoundError) return reply.status(404).send({ error: "not_found", message: err.message });
     if (err instanceof ForbiddenError) return reply.status(403).send({ error: "forbidden", message: err.message });
@@ -60,7 +78,6 @@ export function buildApp() {
     properties: {
       "x-entity-id": uuidSchema(),
       "x-actor-id": uuidSchema(),
-      "x-actor-role": { type: "string", enum: ["admin", "contributor", "accountable"] },
       "x-correlation-id": { type: "string" },
     },
     required: ["x-entity-id", "x-actor-id"],
@@ -79,6 +96,7 @@ export function buildApp() {
   app.get(
     "/health",
     {
+      config: { auth: "public" },
       schema: {
         response: {
           200: strictObjectSchema({ properties: { ok: { type: "boolean", const: true } }, required: ["ok"] }),
@@ -91,6 +109,7 @@ export function buildApp() {
   app.post(
     "/entities",
     {
+      config: { auth: "actor" },
       schema: {
         headers: ActorOnlyHeaders,
         body: strictObjectSchema({
@@ -108,15 +127,15 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const ids = getActorIdFromHeaders(req.headers as Record<string, unknown>);
       const body = req.body as { entity_id?: string };
-      const correlationId = req.id;
+      const actorId = req.actorId!;
+      const correlationId = req.correlationId;
 
       const entityId = body.entity_id ?? randomUUID();
 
       await createEntity(app.prisma, {
         entityId,
-        createdByActorId: ids.actorId,
+        createdByActorId: actorId,
         correlation: { correlationId },
       });
 
@@ -127,6 +146,7 @@ export function buildApp() {
   app.post(
     "/entities/:entityId/memberships",
     {
+      config: { auth: "entity" },
       schema: {
         headers: AuthedHeaders,
         params: strictObjectSchema({ properties: { entityId: uuidSchema() }, required: ["entityId"] }),
@@ -152,11 +172,10 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
-      const performedBy = await resolveActorContext(app.prisma, ids);
+      const performedBy = req.actor!;
       const params = req.params as { entityId: string };
       const body = req.body as { actor_id: string; role: (typeof MembershipRoles)[number] };
-      const correlationId = req.id;
+      const correlationId = req.correlationId;
 
       const membership = await addMembership(app.prisma, {
         entityId: params.entityId,
@@ -179,6 +198,7 @@ export function buildApp() {
   app.patch(
     "/memberships/:membershipId",
     {
+      config: { auth: "entity" },
       schema: {
         headers: AuthedHeaders,
         params: strictObjectSchema({ properties: { membershipId: uuidSchema() }, required: ["membershipId"] }),
@@ -202,11 +222,10 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
-      const performedBy = await resolveActorContext(app.prisma, ids);
+      const performedBy = req.actor!;
       const params = req.params as { membershipId: string };
       const body = req.body as { role: (typeof MembershipRoles)[number]; expected_version: number };
-      const correlationId = req.id;
+      const correlationId = req.correlationId;
 
       const membership = await changeMembershipRole(app.prisma, {
         membershipId: params.membershipId,
@@ -223,6 +242,7 @@ export function buildApp() {
   app.post(
     "/tasks",
     {
+      config: { auth: "entity" },
       schema: {
         headers: AuthedHeaders,
         body: strictObjectSchema({
@@ -243,10 +263,9 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
-      const actor = await resolveActorContext(app.prisma, ids);
+      const actor = req.actor!;
       const body = req.body as { type: string; title: string };
-      const correlationId = req.id;
+      const correlationId = req.correlationId;
 
       const task = await createTask(app.prisma, {
         entityId: actor.entityId,
@@ -263,6 +282,7 @@ export function buildApp() {
   app.post(
     "/tasks/:taskId/state",
     {
+      config: { auth: "entity" },
       schema: {
         headers: AuthedHeaders,
         params: strictObjectSchema({ properties: { taskId: uuidSchema() }, required: ["taskId"] }),
@@ -279,11 +299,10 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
-      const actor = await resolveActorContext(app.prisma, ids);
+      const actor = req.actor!;
       const params = req.params as { taskId: string };
       const body = req.body as { to_state: (typeof TaskStates)[number]; expected_version: number };
-      const correlationId = req.id;
+      const correlationId = req.correlationId;
 
       const task = await transitionTaskState(app.prisma, {
         taskId: params.taskId,
@@ -300,6 +319,7 @@ export function buildApp() {
   app.post(
     "/tasks/:taskId/changesets",
     {
+      config: { auth: "entity" },
       schema: {
         headers: AuthedHeaders,
         params: strictObjectSchema({ properties: { taskId: uuidSchema() }, required: ["taskId"] }),
@@ -326,11 +346,10 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
-      const actor = await resolveActorContext(app.prisma, ids);
+      const actor = req.actor!;
       const params = req.params as { taskId: string };
       const body = req.body as { base_type: string; base_version: number; risk_level: string; patch: unknown };
-      const correlationId = req.id;
+      const correlationId = req.correlationId;
 
       const cs = await proposeChangeSet(app.prisma, {
         taskId: params.taskId,
@@ -349,6 +368,7 @@ export function buildApp() {
   app.post(
     "/changesets/:changeSetId/apply",
     {
+      config: { auth: "entity" },
       schema: {
         headers: AuthedHeaders,
         params: strictObjectSchema({ properties: { changeSetId: uuidSchema() }, required: ["changeSetId"] }),
@@ -362,11 +382,10 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
-      const actor = await resolveActorContext(app.prisma, ids);
+      const actor = req.actor!;
       const params = req.params as { changeSetId: string };
       const body = req.body as { expected_version: number };
-      const correlationId = req.id;
+      const correlationId = req.correlationId;
 
       const cs = await applyChangeSet(app.prisma, {
         changeSetId: params.changeSetId,
@@ -376,6 +395,148 @@ export function buildApp() {
       });
 
       return { changeset_id: cs.id, state: cs.state, version: cs.version };
+    },
+  );
+
+  app.get(
+    "/tasks",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        querystring: strictObjectSchema({
+          properties: {
+            limit: { type: "integer", minimum: 1, maximum: 100 },
+          },
+          required: [],
+        }),
+        response: {
+          200: {
+            type: "array",
+            items: strictObjectSchema({
+              properties: {
+                task_id: uuidSchema(),
+                entity_id: uuidSchema(),
+                type: { type: "string" },
+                title: { type: "string" },
+                state: { type: "string", enum: [...TaskStates] },
+                version: nonNegativeIntSchema(),
+              },
+              required: ["task_id", "entity_id", "type", "title", "state", "version"],
+            }),
+          },
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      const q = (req.query ?? {}) as { limit?: number };
+      const limit = q.limit ?? 50;
+      const rows = await app.prisma.task.findMany({
+        where: { entityId: actor.entityId },
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+      return rows.map((t) => ({
+        task_id: t.id,
+        entity_id: t.entityId,
+        type: t.type,
+        title: t.title,
+        state: t.state,
+        version: t.version,
+      }));
+    },
+  );
+
+  app.get(
+    "/tasks/:taskId",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { taskId: uuidSchema() }, required: ["taskId"] }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              task_id: uuidSchema(),
+              entity_id: uuidSchema(),
+              type: { type: "string" },
+              title: { type: "string" },
+              state: { type: "string", enum: [...TaskStates] },
+              version: nonNegativeIntSchema(),
+            },
+            required: ["task_id", "entity_id", "type", "title", "state", "version"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      const params = req.params as { taskId: string };
+      const task = await app.prisma.task.findFirst({ where: { id: params.taskId, entityId: actor.entityId } });
+      if (!task) throw new NotFoundError("Task not found");
+      return {
+        task_id: task.id,
+        entity_id: task.entityId,
+        type: task.type,
+        title: task.title,
+        state: task.state,
+        version: task.version,
+      };
+    },
+  );
+
+  app.get(
+    "/changesets/:changeSetId",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        params: strictObjectSchema({ properties: { changeSetId: uuidSchema() }, required: ["changeSetId"] }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              changeset_id: uuidSchema(),
+              entity_id: uuidSchema(),
+              task_id: uuidSchema(),
+              state: { type: "string", enum: [...ChangeSetStates] },
+              version: nonNegativeIntSchema(),
+              base_type: { type: "string" },
+              base_version: nonNegativeIntSchema(),
+              risk_level: { type: "string" },
+              patch: { type: "object", additionalProperties: true },
+            },
+            required: [
+              "changeset_id",
+              "entity_id",
+              "task_id",
+              "state",
+              "version",
+              "base_type",
+              "base_version",
+              "risk_level",
+              "patch",
+            ],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      const params = req.params as { changeSetId: string };
+      const cs = await app.prisma.changeSet.findFirst({ where: { id: params.changeSetId, entityId: actor.entityId } });
+      if (!cs) throw new NotFoundError("ChangeSet not found");
+      return {
+        changeset_id: cs.id,
+        entity_id: cs.entityId,
+        task_id: cs.taskId,
+        state: cs.state,
+        version: cs.version,
+        base_type: cs.baseType,
+        base_version: cs.baseVersion,
+        risk_level: cs.riskLevel,
+        patch: cs.patch as Record<string, unknown>,
+      };
     },
   );
 

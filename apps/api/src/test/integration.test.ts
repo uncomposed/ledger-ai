@@ -47,7 +47,6 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "contributor",
       "x-correlation-id": "corr-create",
     },
     payload: { type: "demo", title: "t1" },
@@ -62,7 +61,6 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "contributor",
       "x-correlation-id": "corr-propose",
     },
     payload: { base_type: "demo", base_version: 1, risk_level: "low", patch: { op: "noop" } },
@@ -77,7 +75,6 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "admin",
       "x-correlation-id": "corr-apply-member",
     },
     payload: { expected_version: 0 },
@@ -90,7 +87,6 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": ADMIN_ID,
-      "x-actor-role": "admin",
       "x-correlation-id": "corr-apply-admin",
     },
     payload: { expected_version: 0 },
@@ -131,7 +127,6 @@ test("double submit with stale version returns 409", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "contributor",
       "x-correlation-id": "corr-create-2",
     },
     payload: { type: "demo", title: "t2" },
@@ -145,7 +140,6 @@ test("double submit with stale version returns 409", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "contributor",
       "x-correlation-id": "corr-ready",
     },
     payload: { to_state: "ready", expected_version: created.version },
@@ -158,7 +152,6 @@ test("double submit with stale version returns 409", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "contributor",
       "x-correlation-id": "corr-stale",
     },
     payload: { to_state: "in_progress", expected_version: created.version },
@@ -182,7 +175,6 @@ test("unknown fields are rejected by default", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "contributor",
       "x-correlation-id": "corr-extra",
     },
     payload: { type: "demo", title: "t3", extra: "nope" },
@@ -264,6 +256,215 @@ test("entity + membership audit events publish and cross-entity membership write
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-entity-create", eventType: "entity.created.v1" } });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-member-add", eventType: "membership.added.v1" } });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-member-role", eventType: "membership.role_changed.v1" } });
+
+  await app.close();
+});
+
+test("entity isolation: cannot read other entity's tasks/changesets by ID", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-create-a" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_B_ID, "x-correlation-id": "corr-create-b" },
+    payload: { entity_id: ENTITY_B_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-add-member-a" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  const createRes = await app.inject({
+    method: "POST",
+    url: "/tasks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-a-task" },
+    payload: { type: "demo", title: "a-task" },
+  });
+  assert.equal(createRes.statusCode, 200);
+  const created = createRes.json() as { task_id: string };
+
+  const proposeRes = await app.inject({
+    method: "POST",
+    url: `/tasks/${created.task_id}/changesets`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-a-cs" },
+    payload: { base_type: "demo", base_version: 1, risk_level: "low", patch: { op: "noop" } },
+  });
+  assert.equal(proposeRes.statusCode, 200);
+  const proposed = proposeRes.json() as { changeset_id: string };
+
+  const readTaskWrongEntity = await app.inject({
+    method: "GET",
+    url: `/tasks/${created.task_id}`,
+    headers: { "x-entity-id": ENTITY_B_ID, "x-actor-id": ADMIN_B_ID, "x-correlation-id": "corr-read-wrong-task" },
+  });
+  assert.equal(readTaskWrongEntity.statusCode, 404);
+
+  const readChangeSetWrongEntity = await app.inject({
+    method: "GET",
+    url: `/changesets/${proposed.changeset_id}`,
+    headers: { "x-entity-id": ENTITY_B_ID, "x-actor-id": ADMIN_B_ID, "x-correlation-id": "corr-read-wrong-cs" },
+  });
+  assert.equal(readChangeSetWrongEntity.statusCode, 404);
+
+  await app.close();
+});
+
+test("role enforcement: contributor cannot add memberships", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-create-roles" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-add-contrib" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  const res = await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-contrib-add" },
+    payload: { actor_id: "00000000-0000-0000-0000-000000000099", role: "contributor" },
+  });
+  assert.equal(res.statusCode, 403);
+
+  await app.close();
+});
+
+test("role change affects permissions immediately (apply changeset)", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  const createEntityRes = await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-rc-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+  assert.equal(createEntityRes.statusCode, 200);
+
+  const addMemberRes = await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-rc-add" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+  assert.equal(addMemberRes.statusCode, 200);
+  const membership = addMemberRes.json() as { membership_id: string; version: number };
+
+  const createTaskRes = await app.inject({
+    method: "POST",
+    url: "/tasks",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-rc-task" },
+    payload: { type: "demo", title: "rc-task" },
+  });
+  assert.equal(createTaskRes.statusCode, 200);
+  const created = createTaskRes.json() as { task_id: string; version: number };
+
+  const proposeRes = await app.inject({
+    method: "POST",
+    url: `/tasks/${created.task_id}/changesets`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-rc-propose" },
+    payload: { base_type: "demo", base_version: 1, risk_level: "low", patch: { op: "noop" } },
+  });
+  assert.equal(proposeRes.statusCode, 200);
+  const proposed = proposeRes.json() as { changeset_id: string; version: number };
+
+  const applyBeforeRoleChange = await app.inject({
+    method: "POST",
+    url: `/changesets/${proposed.changeset_id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-rc-apply-before" },
+    payload: { expected_version: proposed.version },
+  });
+  assert.equal(applyBeforeRoleChange.statusCode, 403);
+
+  const changeRoleRes = await app.inject({
+    method: "PATCH",
+    url: `/memberships/${membership.membership_id}`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-rc-role" },
+    payload: { role: "admin", expected_version: membership.version },
+  });
+  assert.equal(changeRoleRes.statusCode, 200);
+
+  const applyAfterRoleChange = await app.inject({
+    method: "POST",
+    url: `/changesets/${proposed.changeset_id}/apply`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-rc-apply-after" },
+    payload: { expected_version: proposed.version },
+  });
+  assert.equal(applyAfterRoleChange.statusCode, 200);
+
+  await publishOutboxOnce(prisma, { limit: 200, workerId: "api-test-roles", leaseSeconds: 0 });
+
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-rc-add", eventType: "membership.added.v1" } });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-rc-role", eventType: "membership.role_changed.v1" } });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-rc-apply-after", eventType: "changeset.applied.v1" } });
+
+  await app.close();
+});
+
+test("cross-entity isolation: cannot act within entity without membership", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-x-create-a" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_B_ID, "x-correlation-id": "corr-x-create-b" },
+    payload: { entity_id: ENTITY_B_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-x-add-a" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  const createDenied = await app.inject({
+    method: "POST",
+    url: "/tasks",
+    headers: { "x-entity-id": ENTITY_B_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-x-deny" },
+    payload: { type: "demo", title: "nope" },
+  });
+  assert.equal(createDenied.statusCode, 403);
 
   await app.close();
 });
