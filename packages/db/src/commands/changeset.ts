@@ -8,6 +8,7 @@ export async function proposeChangeSet(
   prisma: PrismaClient,
   input: {
     taskId: string;
+    changeSetId?: string;
     baseType: string;
     baseVersion: number;
     riskLevel: string;
@@ -22,8 +23,14 @@ export async function proposeChangeSet(
     if (task.entityId !== input.actor.entityId) throw new ForbiddenError("Cross-entity access denied");
     if (!can(input.actor, "changeset:propose", { entityId: task.entityId })) throw new ForbiddenError("Not allowed");
 
+    if (input.changeSetId) {
+      const existing = await tx.changeSet.findUnique({ where: { id: input.changeSetId } });
+      if (existing) return existing;
+    }
+
     const cs = await tx.changeSet.create({
       data: {
+        ...(input.changeSetId ? { id: input.changeSetId } : {}),
         entityId: task.entityId,
         taskId: task.id,
         state: "pending_approval",
