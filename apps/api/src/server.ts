@@ -18,10 +18,19 @@ import {
   createTask,
   proposeChangeSet,
   transitionTaskState,
+  createMealGoal,
 } from "@ledger/db";
 import { buildAuthProvider, type EntityScopedActor } from "./auth/provider.js";
 import { enforceRouteSchemas } from "./http/strict-routes.js";
-import { ChangeSetStates, MembershipRoles, TaskStates, nonNegativeIntSchema, strictObjectSchema, uuidSchema } from "./http/schema.js";
+import {
+  ChangeSetStates,
+  MealGoalStatuses,
+  MembershipRoles,
+  TaskStates,
+  nonNegativeIntSchema,
+  strictObjectSchema,
+  uuidSchema,
+} from "./http/schema.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -886,6 +895,78 @@ export function buildApp() {
         quantity: row.quantity ? row.quantity.toString() : null,
         unit: row.unit ?? null,
       };
+    },
+  );
+
+  app.post(
+    "/meal-goals",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        body: strictObjectSchema({ properties: { text: { type: "string", minLength: 1 } }, required: ["text"] }),
+        response: {
+          200: strictObjectSchema({
+            properties: {
+              meal_goal_id: uuidSchema(),
+              status: { type: "string", enum: [...MealGoalStatuses] },
+              version: nonNegativeIntSchema(),
+            },
+            required: ["meal_goal_id", "status", "version"],
+          }),
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "meal:write", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+      const body = req.body as { text: string };
+      const correlationId = req.correlationId;
+
+      const goal = await createMealGoal(app.prisma, {
+        entityId: actor.entityId,
+        text: body.text,
+        createdBy: actor,
+        correlation: { correlationId },
+      });
+
+      return { meal_goal_id: goal.id, status: goal.status, version: goal.version };
+    },
+  );
+
+  app.get(
+    "/meal-goals",
+    {
+      config: { auth: "entity" },
+      schema: {
+        headers: AuthedHeaders,
+        response: {
+          200: {
+            type: "array",
+            items: strictObjectSchema({
+              properties: {
+                meal_goal_id: uuidSchema(),
+                status: { type: "string", enum: [...MealGoalStatuses] },
+                version: nonNegativeIntSchema(),
+                text: { type: "string" },
+              },
+              required: ["meal_goal_id", "status", "version", "text"],
+            }),
+          },
+        },
+      },
+    },
+    async (req) => {
+      const actor = req.actor!;
+      if (!can(actor, "meal:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+
+      const rows = await app.prisma.mealGoal.findMany({
+        where: { entityId: actor.entityId },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      });
+
+      return rows.map((g) => ({ meal_goal_id: g.id, status: g.status, version: g.version, text: g.text }));
     },
   );
 

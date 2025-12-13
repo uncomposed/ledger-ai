@@ -36,6 +36,15 @@ test("members can read inventory", () => {
   assert.equal(can(accountable, "inventory:read", { entityId: "e1" }), true);
 });
 
+test("members can create and read meal goals", () => {
+  const contributor: Actor = { actorId: "a", entityId: "e1", role: "contributor" };
+  const accountable: Actor = { actorId: "a", entityId: "e1", role: "accountable" };
+  assert.equal(can(contributor, "meal:write", { entityId: "e1" }), true);
+  assert.equal(can(accountable, "meal:write", { entityId: "e1" }), true);
+  assert.equal(can(contributor, "meal:read", { entityId: "e1" }), true);
+  assert.equal(can(accountable, "meal:read", { entityId: "e1" }), true);
+});
+
 test("accountable can complete tasks", () => {
   const actor: Actor = { actorId: "a", entityId: "e1", role: "accountable" };
   assert.equal(can(actor, "task:complete", { entityId: "e1" }), true);

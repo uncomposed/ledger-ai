@@ -40,6 +40,8 @@ async function main() {
     "InventoryItem_entityId_locationId_idx",
     "InventoryItem_entityId_resourceId_idx",
     "InventoryItem_entityId_resourceId_locationId_key",
+    "MealGoal_entityId_status_idx",
+    "MealGoal_entityId_createdAt_idx",
   ];
 
   const have = new Set(indexes.map((x) => x.indexname));

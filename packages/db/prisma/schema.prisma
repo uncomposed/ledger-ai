@@ -73,6 +73,7 @@ model Actor {
   changeSetsApproved ChangeSet[]  @relation("ChangeSetApprovedBy")
   tracksCreated      Track[]      @relation("TrackCreatedBy")
   answersAuthored    Answer[]     @relation("AnswerAnsweredBy")
+  mealGoalsCreated   MealGoal[]   @relation("MealGoalCreatedBy")
 }
 
 model Entity {
@@ -93,6 +94,7 @@ model Entity {
   resources   Resource[]
   locations   Location[]
   inventory   InventoryItem[]
+  mealGoals   MealGoal[]
   outbox      EventOutbox[]
   eventLog    EventLog[]
 
@@ -154,6 +156,28 @@ model InventoryItem {
   @@unique([entityId, resourceId, locationId])
   @@index([entityId, locationId])
   @@index([entityId, resourceId])
+}
+
+enum MealGoalStatus {
+  open
+  planned
+  cancelled
+}
+
+model MealGoal {
+  id               String         @id @default(uuid())
+  entityId         String
+  entity           Entity         @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  status           MealGoalStatus @default(open)
+  text             String
+  version          Int            @default(0)
+  createdByActorId String
+  createdByActor   Actor          @relation("MealGoalCreatedBy", fields: [createdByActorId], references: [id], onDelete: Restrict)
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([entityId, status])
+  @@index([entityId, createdAt])
 }
 
 enum MembershipRole {

@@ -5,6 +5,7 @@ export const EVENT_TYPES = [
   "inventory.import_text.applied.v1",
   "lens.run.completed.v1",
   "lens.run.started.v1",
+  "meal.goal.created.v1",
   "membership.added.v1",
   "membership.role_changed.v1",
   "question.answered.v1",

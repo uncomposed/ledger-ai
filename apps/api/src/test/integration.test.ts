@@ -684,3 +684,48 @@ test("lens run processes track and produces approval-queue proposal (idempotent)
 
   await app.close();
 });
+
+test("meal goals can be created and listed (and emit event)", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+
+  const app = buildApp();
+  await app.ready();
+
+  await app.inject({
+    method: "POST",
+    url: "/entities",
+    headers: { "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-meal-entity" },
+    payload: { entity_id: ENTITY_ID },
+  });
+
+  await app.inject({
+    method: "POST",
+    url: `/entities/${ENTITY_ID}/memberships`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-meal-add" },
+    payload: { actor_id: MEMBER_ID, role: "contributor" },
+  });
+
+  const createRes = await app.inject({
+    method: "POST",
+    url: "/meal-goals",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-meal-create" },
+    payload: { text: "It would be great if we could cook pasta this week" },
+  });
+  assert.equal(createRes.statusCode, 200);
+  const created = createRes.json() as { meal_goal_id: string };
+
+  const listRes = await app.inject({
+    method: "GET",
+    url: "/meal-goals",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-meal-list" },
+  });
+  assert.equal(listRes.statusCode, 200);
+  const list = listRes.json() as Array<{ meal_goal_id: string }>;
+  assert.ok(list.some((x) => x.meal_goal_id === created.meal_goal_id));
+
+  await publishOutboxOnce(prisma, { limit: 200, workerId: "api-test-meal", leaseSeconds: 0 });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-meal-create", eventType: "meal.goal.created.v1" } });
+
+  await app.close();
+});
