@@ -7,6 +7,10 @@ export type PolicyAction =
   | "changeset:read"
   | "changeset:propose"
   | "changeset:apply"
+  | "track:ingest"
+  | "question:read"
+  | "question:ask"
+  | "question:answer"
   | "membership:read"
   | "membership:write"
   | "admin:manage";
@@ -26,6 +30,11 @@ export function can(actor: Actor, action: PolicyAction, resource: { entityId: st
       return actor.role === "accountable";
     case "changeset:propose":
       return actor.role === "contributor";
+    case "track:ingest":
+    case "question:read":
+    case "question:ask":
+    case "question:answer":
+      return actor.role === "contributor" || actor.role === "accountable";
     case "changeset:apply":
     case "membership:read":
     case "membership:write":
