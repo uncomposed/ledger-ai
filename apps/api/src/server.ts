@@ -782,6 +782,12 @@ export function buildApp() {
       config: { auth: "entity" },
       schema: {
         headers: AuthedHeaders,
+        querystring: strictObjectSchema({
+          properties: {
+            limit: { type: "integer", minimum: 1, maximum: 500 },
+          },
+          required: [],
+        }),
         response: {
           200: {
             type: "array",
@@ -793,7 +799,7 @@ export function buildApp() {
                 resource_name: { type: ["string", "null"] },
                 location_id: { type: ["string", "null"], format: "uuid" },
                 location_name: { type: ["string", "null"] },
-                location_kind: { type: ["string", "null"], enum: ["pantry", "fridge", "freezer", "counter", null] },
+                location_kind: { type: ["string", "null"] },
                 quantity: { type: ["string", "null"] },
                 unit: { type: ["string", "null"] },
               },
@@ -816,12 +822,14 @@ export function buildApp() {
     async (req) => {
       const actor = req.actor!;
       if (!can(actor, "inventory:read", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
+      const q = (req.query ?? {}) as { limit?: number };
+      const limit = q.limit ?? 200;
 
       const rows = await app.prisma.inventoryItem.findMany({
         where: { entityId: actor.entityId },
         include: { resource: true, location: true },
         orderBy: { createdAt: "desc" },
-        take: 200,
+        take: limit,
       });
 
       return rows.map((x) => ({
@@ -854,7 +862,7 @@ export function buildApp() {
               resource_name: { type: ["string", "null"] },
               location_id: { type: ["string", "null"], format: "uuid" },
               location_name: { type: ["string", "null"] },
-              location_kind: { type: ["string", "null"], enum: ["pantry", "fridge", "freezer", "counter", null] },
+              location_kind: { type: ["string", "null"] },
               quantity: { type: ["string", "null"] },
               unit: { type: ["string", "null"] },
             },
