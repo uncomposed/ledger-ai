@@ -10,6 +10,7 @@ datasource db {
 model EventOutbox {
   id           String   @id @default(uuid())
   entityId     String
+  correlationId String
   eventType    String
   eventVersion Int
   occurredAt   DateTime
@@ -17,14 +18,21 @@ model EventOutbox {
   createdAt    DateTime @default(now())
   publishedAt  DateTime?
   publishError String?
+  claimedAt    DateTime?
+  claimedBy    String?
+  leaseUntil   DateTime?
 
   @@index([publishedAt])
+  @@index([leaseUntil])
+  @@index([correlationId])
   @@index([entityId, occurredAt])
 }
 
 model EventLog {
   id           String   @id @default(uuid())
+  outboxId     String   @unique
   entityId     String
+  correlationId String
   eventType    String
   eventVersion Int
   occurredAt   DateTime
@@ -32,30 +40,60 @@ model EventLog {
   appendedAt   DateTime @default(now())
 
   @@index([entityId, occurredAt])
+  @@index([correlationId])
+}
+
+enum TaskState {
+  proposed
+  ready
+  in_progress
+  completed
+  blocked
+  cancelled
 }
 
 model Task {
   id        String   @id @default(uuid())
   entityId  String
   type      String
-  state     String
+  state     TaskState
   title     String
+  version   Int      @default(0)
+  createdByActorId String
+  updatedByActorId String?
+  stateChangedAt DateTime @default(now())
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  changeSets ChangeSet[]
 
   @@index([entityId, state])
+}
+
+enum ChangeSetState {
+  draft
+  pending_approval
+  applied
+  rejected
 }
 
 model ChangeSet {
   id          String   @id @default(uuid())
   entityId    String
-  state       String
+  taskId      String
+  task        Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  state       ChangeSetState
+  version     Int      @default(0)
   baseType    String
   baseVersion Int
   riskLevel   String
+  patch       Json
+  proposedByActorId String
+  approvedByActorId String?
+  stateChangedAt DateTime @default(now())
+  appliedAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([entityId, state])
+  @@index([taskId, state])
 }
-

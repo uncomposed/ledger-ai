@@ -3,6 +3,7 @@ import type { Actor } from "./roles.js";
 export type PolicyAction =
   | "task:read"
   | "task:write"
+  | "task:complete"
   | "changeset:propose"
   | "changeset:apply"
   | "admin:manage";
@@ -14,6 +15,7 @@ export function can(actor: Actor, action: PolicyAction, resource: { entityId: st
   switch (action) {
     case "task:read":
     case "task:write":
+    case "task:complete":
     case "changeset:propose":
       return actor.role === "member";
     case "changeset:apply":
@@ -25,4 +27,3 @@ export function can(actor: Actor, action: PolicyAction, resource: { entityId: st
     }
   }
 }
-

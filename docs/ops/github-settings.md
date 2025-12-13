@@ -1,35 +1,32 @@
-# initial: ruleset
-Bypass list
-Bypass list is empty
-Target branches
-Branch targeting criteria
-Default
-## Rules
-Branch rules
+# GitHub Repo Settings (M0)
+note: @uncomposed is the manager of the GitHub repo
+These protections live in GitHub settings (not in code), so we document them here.
 
-Restrict deletions
-Only allow users with bypass permissions to delete matching refs.
+## Ruleset / Branch protection (`main`)
 
-Require signed commits
-Commits pushed to matching refs must have verified signatures.
+Enable:
 
-Require a pull request before merging
-Require all commits be made to a non-target branch and submitted via a pull request before they can be merged.
-Required approvals: 1
+- Require a pull request before merging (min approvals: 1)
+- Dismiss stale approvals on new commits
+- Require branches to be up to date before merging
+- Require status checks to pass (required checks listed below)
+- Block force pushes
+- Restrict deletions
+- Require signed commits (recommended)
 
-Dismiss stale pull request approvals when new commits are pushed
-New, reviewable commits pushed will dismiss previous pull request review approvals.
+### Required status checks
 
-Require status checks to pass
-Choose which status checks must pass before the ref is updated. When enabled, commits must first be pushed to another ref where the checks pass.
+From `.github/workflows/ci.yml`:
 
-Require branches to be up to date before merging
-Whether pull requests targeting a matching branch must be tested with the latest code. This setting will not take effect unless at least one status check is enabled.
+- `dangerous_change_detector`
+- `node_checks`
+- `db_migrate_and_verify`
+- `event_schema_validate`
+- `policy_tests`
 
-Allow repositories and branches to be created if a check would otherwise prohibit it.
-No required checks
-No checks have been added
-Learn more about status checks
+## Secret scanning / push protection
 
-Block force pushes
-Prevent users with push access from force pushing to refs.
+Enable:
+
+- Secret scanning
+- Push protection for supported secrets

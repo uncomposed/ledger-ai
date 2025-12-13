@@ -1,6 +1,5 @@
-import { prisma } from "@ledger/db";
+import { prisma, publishOutboxOnce } from "@ledger/db";
 import { logger } from "@ledger/observability";
-import { publishOutboxOnce } from "./outbox/publish.js";
 
 async function main() {
   const intervalMs = Number(process.env.OUTBOX_POLL_MS ?? "1000");
@@ -20,4 +19,3 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => prisma.$disconnect());
-

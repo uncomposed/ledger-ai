@@ -6,12 +6,14 @@
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node -e \"process.exit(0)\"",
-    "dev": "node --loader tsx src/index.ts"
+    "test:integration": "node --test --import tsx src/test/integration.test.ts",
+    "dev": "node --import tsx src/index.ts"
   },
   "dependencies": {
     "@ledger/db": "workspace:*",
     "@ledger/observability": "workspace:*",
-    "@ledger/policy": "workspace:*"
+    "@ledger/policy": "workspace:*",
+    "fastify": "^4.29.1"
   },
   "devDependencies": {
     "tsx": "^4.19.2",

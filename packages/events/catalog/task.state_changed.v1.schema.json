@@ -1,0 +1,23 @@
+{
+  "$id": "task.state_changed.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "task_id", "entity_id", "from_state", "to_state", "changed_by_actor_id", "produced"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "task_id": { "type": "string", "format": "uuid" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "from_state": { "type": "string", "enum": ["proposed", "ready", "in_progress", "completed", "blocked", "cancelled"] },
+    "to_state": { "type": "string", "enum": ["proposed", "ready", "in_progress", "completed", "blocked", "cancelled"] },
+    "changed_by_actor_id": { "type": "string", "format": "uuid" },
+    "produced": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changeset_ids"],
+      "properties": {
+        "changeset_ids": { "type": "array", "items": { "type": "string", "format": "uuid" } }
+      }
+    }
+  }
+}
+
