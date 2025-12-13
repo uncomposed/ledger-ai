@@ -6,6 +6,7 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  resolveActorContext,
   applyChangeSet,
   createTask,
   proposeChangeSet,
@@ -58,7 +59,7 @@ export function buildApp() {
       "x-actor-role": { type: "string", enum: ["admin", "contributor", "accountable"] },
       "x-correlation-id": { type: "string" },
     },
-    required: ["x-entity-id", "x-actor-id", "x-actor-role"],
+    required: ["x-entity-id", "x-actor-id"],
   };
 
   app.get(
@@ -96,7 +97,8 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const actor = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const actor = await resolveActorContext(app.prisma, ids);
       const body = req.body as { type: string; title: string };
       const correlationId = req.id;
 
@@ -131,7 +133,8 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const actor = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const actor = await resolveActorContext(app.prisma, ids);
       const params = req.params as { taskId: string };
       const body = req.body as { to_state: (typeof TaskStates)[number]; expected_version: number };
       const correlationId = req.id;
@@ -177,7 +180,8 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const actor = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const actor = await resolveActorContext(app.prisma, ids);
       const params = req.params as { taskId: string };
       const body = req.body as { base_type: string; base_version: number; risk_level: string; patch: unknown };
       const correlationId = req.id;
@@ -212,7 +216,8 @@ export function buildApp() {
       },
     },
     async (req) => {
-      const actor = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const ids = getActorFromHeaders(req.headers as Record<string, unknown>);
+      const actor = await resolveActorContext(app.prisma, ids);
       const params = req.params as { changeSetId: string };
       const body = req.body as { expected_version: number };
       const correlationId = req.id;

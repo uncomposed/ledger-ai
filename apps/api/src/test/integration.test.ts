@@ -27,6 +27,8 @@ async function seedActorsAndEntity() {
   await prisma.entity.create({ data: { id: ENTITY_ID } });
   await prisma.actor.create({ data: { id: MEMBER_ID, type: "human" } });
   await prisma.actor.create({ data: { id: ADMIN_ID, type: "human" } });
+  await prisma.membership.create({ data: { entityId: ENTITY_ID, actorId: MEMBER_ID, role: "contributor" } });
+  await prisma.membership.create({ data: { entityId: ENTITY_ID, actorId: ADMIN_ID, role: "admin" } });
 }
 
 test("task -> changeset -> apply emits events and publishes once", async () => {
@@ -73,7 +75,7 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
     headers: {
       "x-entity-id": ENTITY_ID,
       "x-actor-id": MEMBER_ID,
-      "x-actor-role": "contributor",
+      "x-actor-role": "admin",
       "x-correlation-id": "corr-apply-member",
     },
     payload: { expected_version: 0 },

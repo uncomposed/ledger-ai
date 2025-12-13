@@ -18,6 +18,12 @@ async function main() {
     update: {},
   });
 
+  await prisma.membership.upsert({
+    where: { entityId_actorId: { entityId, actorId } },
+    create: { entityId, actorId, role: "admin" },
+    update: {},
+  });
+
   await prisma.task.create({
     data: {
       entityId,
