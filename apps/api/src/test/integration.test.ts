@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { prisma, publishOutboxOnce, createQuestion } from "@ledger/db";
 import { buildApp } from "../server.js";
 import { runLensRunsOnce } from "@ledger/db";
+import { SignJWT } from "jose";
 
 function mustEnv(name: string): string {
   const v = process.env[name];
@@ -296,6 +297,45 @@ test("/me returns actor memberships", async () => {
   const json = res.json() as { actor_id: string; memberships: Array<{ entity_id: string; role: string }> };
   assert.equal(json.actor_id, ADMIN_ID);
   assert.deepEqual(json.memberships, [{ entity_id: ENTITY_ID, role: "admin" }]);
+
+  await app.close();
+});
+
+test("jwt auth: /me works with bearer token", async () => {
+  mustEnv("DATABASE_URL");
+  await resetDb();
+  await seedActorsAndEntity();
+
+  const secret = "test-secret";
+  const token = await new SignJWT({})
+    .setProtectedHeader({ alg: "HS256" })
+    .setSubject(ADMIN_ID)
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(new TextEncoder().encode(secret));
+
+  const app = buildApp({
+    env: {
+      ...process.env,
+      AUTH_PROVIDER: "jwt",
+      AUTH_JWT_SECRET: secret,
+      AUTH_JWT_ISSUER: "",
+      AUTH_JWT_AUDIENCE: "",
+    },
+  });
+  await app.ready();
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/me",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "x-correlation-id": "corr-me-jwt",
+    },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const json = res.json() as { actor_id: string };
+  assert.equal(json.actor_id, ADMIN_ID);
 
   await app.close();
 });

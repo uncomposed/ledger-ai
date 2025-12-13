@@ -1,8 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { logger } from "@ledger/observability";
 import { prisma } from "@ledger/db";
 import type { PrismaClient } from "@ledger/db";
@@ -24,8 +22,12 @@ import {
   transitionTaskState,
   createMealGoal,
 } from "@ledger/db";
-import { buildAuthProvider, type EntityScopedActor } from "./auth/provider.js";
+import { buildAuthProvider } from "./auth/provider.js";
+import type { EntityScopedActor } from "./auth/types.js";
 import { enforceRouteSchemas } from "./http/strict-routes.js";
+import type { UploadsProvider } from "./uploads/provider.js";
+import { LocalUploadsProvider } from "./uploads/local.js";
+import { S3UploadsProvider } from "./uploads/s3.js";
 import {
   ChangeSetStates,
   MealGoalStatuses,
@@ -61,9 +63,27 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
     },
   });
 
-  const uploadsProvider = String(env.UPLOADS_PROVIDER ?? "local").toLowerCase();
+  const uploadsProviderName = String(env.UPLOADS_PROVIDER ?? "local").toLowerCase();
   const uploadsRootDir = env.UPLOADS_DIR ?? ".tmp/uploads";
-  if (uploadsProvider !== "local") throw new Error(`Unsupported UPLOADS_PROVIDER: ${uploadsProvider}`);
+  let uploadsProvider: UploadsProvider;
+  let localUploads: LocalUploadsProvider | undefined;
+  if (uploadsProviderName === "local") {
+    localUploads = new LocalUploadsProvider(uploadsRootDir);
+    uploadsProvider = localUploads;
+  } else if (uploadsProviderName === "s3") {
+    const bucket = String(env.UPLOADS_S3_BUCKET ?? "");
+    const region = String(env.UPLOADS_S3_REGION ?? "");
+    if (!bucket) throw new Error("UPLOADS_S3_BUCKET is required when UPLOADS_PROVIDER=s3");
+    if (!region) throw new Error("UPLOADS_S3_REGION is required when UPLOADS_PROVIDER=s3");
+    uploadsProvider = new S3UploadsProvider({
+      bucket,
+      region,
+      endpoint: env.UPLOADS_S3_ENDPOINT || undefined,
+      forcePathStyle: String(env.UPLOADS_S3_FORCE_PATH_STYLE ?? "").toLowerCase() === "true",
+    });
+  } else {
+    throw new Error(`Unsupported UPLOADS_PROVIDER: ${uploadsProviderName}`);
+  }
 
   app.decorate("prisma", prisma);
 
@@ -109,7 +129,7 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
     const mode = (req.routeOptions.config as any)?.auth as "public" | "actor" | "entity";
     if (mode === "public") return;
     if (mode === "actor") {
-      req.actorId = authProvider.actorIdFromRequest(req);
+      req.actorId = await authProvider.actorIdFromRequest(req);
       return;
     }
     req.actor = await authProvider.entityScopedActorFromRequest(req);
@@ -133,9 +153,10 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
     properties: {
       "x-entity-id": uuidSchema(),
       "x-actor-id": uuidSchema(),
+      authorization: { type: "string" },
       "x-correlation-id": { type: "string" },
     },
-    required: ["x-entity-id", "x-actor-id"],
+    required: ["x-entity-id"],
   };
 
   const ActorOnlyHeaders = {
@@ -143,9 +164,10 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
     additionalProperties: true,
     properties: {
       "x-actor-id": uuidSchema(),
+      authorization: { type: "string" },
       "x-correlation-id": { type: "string" },
     },
-    required: ["x-actor-id"],
+    required: [],
   };
 
   app.get(
@@ -193,18 +215,23 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
       const actor = req.actor!;
       if (!can(actor, "track:ingest", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
 
-      const body = req.body as { content_type: string; size_bytes: number; sha256: string };
       const storageKey = randomUUID();
-      const url = new URL(`/uploads/${storageKey}`, `http://${req.headers.host ?? "localhost"}`).toString();
+      const body = req.body as { content_type: string; size_bytes: number; sha256: string };
+      const presign = await uploadsProvider.presignPut({
+        entityId: actor.entityId,
+        storageKey,
+        contentType: body.content_type,
+        sizeBytes: body.size_bytes,
+        sha256: body.sha256,
+      });
+      const url = new URL(presign.url, `http://${req.headers.host ?? "localhost"}`).toString();
 
       return {
-        storage_key: storageKey,
-        method: "PUT",
+        storage_key: presign.storageKey,
+        method: presign.method,
         url,
-        headers: {
-          "content-type": body.content_type,
-        },
-        expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        headers: presign.headers,
+        expires_at: presign.expiresAt,
       };
     },
   );
@@ -226,23 +253,18 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
       const actor = req.actor!;
       if (!can(actor, "track:ingest", { entityId: actor.entityId })) throw new ForbiddenError("Not allowed");
 
+      if (!localUploads) throw new NotFoundError("Uploads are not handled by this API");
+
       const params = req.params as { storageKey: string };
       const body = req.body as unknown;
       if (!Buffer.isBuffer(body)) throw new Error("Upload body must be binary");
-
-      const entityDir = join(uploadsRootDir, actor.entityId);
-      await mkdir(entityDir, { recursive: true });
-
-      const dest = join(entityDir, params.storageKey);
-      const alreadyExists = await stat(dest)
-        .then(() => true)
-        .catch((e: any) => {
-          if (e?.code === "ENOENT") return false;
-          throw e;
-        });
-      if (alreadyExists) throw new ConflictError("Upload already exists");
-
-      await writeFile(dest, body);
+      try {
+        await localUploads.writeUploaded({ entityId: actor.entityId, storageKey: params.storageKey, bytes: body });
+      } catch (e: any) {
+        const msg = String(e?.message ?? e);
+        if (msg.includes("already exists")) throw new ConflictError("Upload already exists");
+        throw e;
+      }
       return { ok: true };
     },
   );
@@ -540,15 +562,25 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
             attachments?: Array<{ content_type: string; size_bytes: number; sha256: string; storage_key: string }>;
           };
 
-      if (uploadsProvider === "local" && body.kind === "image") {
+      if (body.kind === "image") {
         const attachments = body.attachments ?? [];
         for (const a of attachments) {
-          const path = join(uploadsRootDir, actor.entityId, a.storage_key);
-          const bytes = await readFile(path).catch(() => null);
-          if (!bytes) throw new NotFoundError("Upload not found");
-          if (bytes.length !== a.size_bytes) throw new ConflictError("Upload size mismatch");
-          const have = createHash("sha256").update(bytes).digest("hex");
-          if (have !== a.sha256) throw new ConflictError("Upload sha256 mismatch");
+          try {
+            await uploadsProvider.verifyUploaded({
+              entityId: actor.entityId,
+              storageKey: a.storage_key,
+              contentType: a.content_type,
+              sizeBytes: a.size_bytes,
+              sha256: a.sha256,
+            });
+          } catch (e: any) {
+            const msg = String(e?.message ?? e);
+            if (msg.includes("not found")) throw new NotFoundError("Upload not found");
+            if (msg.includes("size mismatch")) throw new ConflictError("Upload size mismatch");
+            if (msg.includes("sha256 mismatch")) throw new ConflictError("Upload sha256 mismatch");
+            if (msg.includes("content-type mismatch")) throw new ConflictError("Upload content-type mismatch");
+            throw e;
+          }
         }
       }
 

@@ -1,19 +1,18 @@
 import type { FastifyRequest } from "fastify";
 import type { PrismaClient } from "@ledger/db";
-import type { Role } from "@ledger/policy";
 import { resolveActorContext } from "@ledger/db";
-
-export type EntityScopedActor = { actorId: string; entityId: string; role: Role };
+import type { EntityScopedActor } from "./types.js";
+import { JwtAuthProvider } from "./jwt.js";
 
 export interface AuthProvider {
-  actorIdFromRequest(req: FastifyRequest): string;
+  actorIdFromRequest(req: FastifyRequest): Promise<string>;
   entityScopedActorFromRequest(req: FastifyRequest): Promise<EntityScopedActor>;
 }
 
 class NoneAuthProvider implements AuthProvider {
   constructor(private readonly prisma: PrismaClient) {}
 
-  actorIdFromRequest(req: FastifyRequest): string {
+  async actorIdFromRequest(req: FastifyRequest): Promise<string> {
     const actorId = String(req.headers["x-actor-id"] ?? "");
     if (!actorId) throw new Error("missing x-actor-id");
     return actorId;
@@ -38,7 +37,7 @@ class DevAuthProvider extends NoneAuthProvider {
 }
 
 class ClerkAuthProvider implements AuthProvider {
-  actorIdFromRequest(_req: FastifyRequest): string {
+  async actorIdFromRequest(_req: FastifyRequest): Promise<string> {
     throw new Error('AUTH_PROVIDER="clerk" is not implemented yet');
   }
 
@@ -56,6 +55,14 @@ export function buildAuthProvider(prisma: PrismaClient, env: NodeJS.ProcessEnv =
     return new NoneAuthProvider(prisma);
   }
   if (provider === "dev") return new DevAuthProvider(prisma, env);
+  if (provider === "jwt") {
+    return new JwtAuthProvider(prisma, {
+      issuer: env.AUTH_JWT_ISSUER || undefined,
+      audience: env.AUTH_JWT_AUDIENCE || undefined,
+      jwksUrl: env.AUTH_JWT_JWKS_URL || undefined,
+      secret: env.AUTH_JWT_SECRET || undefined,
+    });
+  }
   if (provider === "clerk") return new ClerkAuthProvider();
   throw new Error(`Unknown AUTH_PROVIDER: ${provider}`);
 }
