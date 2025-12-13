@@ -24,6 +24,7 @@ async function main() {
     "Task_entityId_state_idx",
     "ChangeSet_entityId_state_idx",
     "ChangeSet_taskId_state_idx",
+    "ChangeSet_entityId_baseType_baseVersion_idx",
     "Track_entityId_createdAt_idx",
     "Track_entityId_status_idx",
     "Track_correlationId_idx",

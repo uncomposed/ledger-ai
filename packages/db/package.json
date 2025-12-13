@@ -11,7 +11,7 @@
   "scripts": {
     "lint": "node -e \"process.exit(0)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"process.exit(0)\"",
+    "test": "node ../../scripts/run-tsx.mjs --test src/test/patch-registry.test.ts",
     "test:integration": "node ../../scripts/run-tsx.mjs --test src/test/outbox-idempotency.test.ts",
     "db:generate": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",

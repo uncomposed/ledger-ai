@@ -306,6 +306,7 @@ model ChangeSet {
 
   @@index([entityId, state])
   @@index([taskId, state])
+  @@index([entityId, baseType, baseVersion])
 }
 
 enum TrackKind {
