@@ -17,6 +17,20 @@ const ENTITY_B_ID = "00000000-0000-0000-0000-000000000002";
 const ADMIN_B_ID = "00000000-0000-0000-0000-000000000012";
 
 async function resetDb() {
+  await prisma.inventoryMutation.deleteMany({});
+  await prisma.inventoryItem.deleteMany({});
+  await prisma.location.deleteMany({});
+  await prisma.resource.deleteMany({});
+  await prisma.recipeIngredient.deleteMany({});
+  await prisma.recipeStep.deleteMany({});
+  await prisma.recipe.deleteMany({});
+  await prisma.mealGoal.deleteMany({});
+  await prisma.taskSubject.deleteMany({});
+  await prisma.trackAttachment.deleteMany({});
+  await prisma.answer.deleteMany({});
+  await prisma.question.deleteMany({});
+  await prisma.lensRun.deleteMany({});
+  await prisma.track.deleteMany({});
   await prisma.eventLog.deleteMany({});
   await prisma.eventOutbox.deleteMany({});
   await prisma.changeSet.deleteMany({});
@@ -839,12 +853,50 @@ test("meal goal planning produces a plan changeset and applying it creates tasks
     headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-tasks" },
   });
   assert.equal(tasksRes.statusCode, 200);
-  const tasks = tasksRes.json() as Array<{ title: string }>;
+  const tasks = tasksRes.json() as Array<{ task_id: string; title: string }>;
   assert.ok(tasks.some((t) => t.title.includes("Cook Pasta Marinara")));
-  assert.ok(tasks.some((t) => t.title.includes("Buy ingredients for Pasta Marinara")));
+  const buy = tasks.find((t) => t.title.includes("Buy ingredients for Pasta Marinara"));
+  assert.ok(buy);
 
   await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-plan", leaseSeconds: 0 });
   await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-plan-apply", eventType: "meal.plan.applied.v1" } });
+
+  // Completing the procurement task auto-applies an inventory delta when performed by an admin.
+  const readyBuy = await app.inject({
+    method: "POST",
+    url: `/tasks/${buy!.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-buy-ready" },
+    payload: { to_state: "ready", expected_version: 0 },
+  });
+  assert.equal(readyBuy.statusCode, 200);
+
+  const progressBuy = await app.inject({
+    method: "POST",
+    url: `/tasks/${buy!.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-buy-progress" },
+    payload: { to_state: "in_progress", expected_version: 1 },
+  });
+  assert.equal(progressBuy.statusCode, 200);
+
+  const completeBuy = await app.inject({
+    method: "POST",
+    url: `/tasks/${buy!.task_id}/state`,
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": ADMIN_ID, "x-correlation-id": "corr-plan-buy-complete" },
+    payload: { to_state: "completed", expected_version: 2 },
+  });
+  assert.equal(completeBuy.statusCode, 200);
+
+  const afterInv = await app.inject({
+    method: "GET",
+    url: "/inventory?limit=200",
+    headers: { "x-entity-id": ENTITY_ID, "x-actor-id": MEMBER_ID, "x-correlation-id": "corr-plan-inv-after" },
+  });
+  assert.equal(afterInv.statusCode, 200);
+  const afterItems = afterInv.json() as Array<{ resource_name: string | null }>;
+  assert.ok(afterItems.some((x) => x.resource_name?.toLowerCase().includes("tomato sauce")));
+
+  await publishOutboxOnce(prisma, { limit: 500, workerId: "api-test-plan2", leaseSeconds: 0 });
+  await prisma.eventLog.findFirstOrThrow({ where: { correlationId: "corr-plan-buy-complete", eventType: "inventory.delta.applied.v1" } });
 
   await app.close();
 });

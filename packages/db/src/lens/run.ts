@@ -109,16 +109,32 @@ async function runMealPlanV1(ctx: LensContext) {
 
   const choose = recipes.find((r) => r.ingredients.every((i) => have.has(i.resource.externalKey ?? ""))) ?? recipes[0];
 
-  const plannedTasks: Array<{ type: string; title: string }> = [];
+  const plannedTasks: Array<{ type: string; title: string; resource_ids?: string[] }> = [];
   if (!choose) {
     plannedTasks.push({ type: "meal.plan", title: `Choose a recipe for: ${goal.text}` });
     plannedTasks.push({ type: "meal.cook", title: `Cook: ${goal.text}` });
   } else {
-    const missing = choose.ingredients
-      .map((i) => i.resource.externalKey ?? "")
-      .filter((k) => k && !have.has(k));
-    if (missing.length) plannedTasks.push({ type: "meal.buy", title: `Buy ingredients for ${choose.name}` });
-    plannedTasks.push({ type: "meal.cook", title: `Cook ${choose.name}` });
+    const missingIngredients = choose.ingredients.filter((i) => {
+      const key = i.resource.externalKey ?? "";
+      return key && !have.has(key);
+    });
+
+    const allResourceIds = choose.ingredients.map((i) => i.resourceId);
+    const missingResourceIds = missingIngredients.map((i) => i.resourceId);
+
+    if (missingResourceIds.length) {
+      plannedTasks.push({
+        type: "meal.buy",
+        title: `Buy ingredients for ${choose.name}`,
+        resource_ids: missingResourceIds,
+      });
+    }
+
+    plannedTasks.push({
+      type: "meal.cook",
+      title: `Cook ${choose.name}`,
+      resource_ids: allResourceIds,
+    });
   }
 
   await proposeChangeSet(ctx.prisma, {

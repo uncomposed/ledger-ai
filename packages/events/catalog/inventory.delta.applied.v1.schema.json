@@ -1,0 +1,13 @@
+{
+  "$id": "inventory.delta.applied.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correlation_id", "entity_id", "changeset_id", "operation_count"],
+  "properties": {
+    "correlation_id": { "type": "string" },
+    "entity_id": { "type": "string", "format": "uuid" },
+    "changeset_id": { "type": "string", "format": "uuid" },
+    "operation_count": { "type": "integer", "minimum": 0 }
+  }
+}
+

@@ -13,12 +13,20 @@ function asString(v: unknown, name: string): string {
   return v;
 }
 
-function asTaskList(v: unknown): Array<{ type: string; title: string }> {
+function asTaskList(v: unknown): Array<{ type: string; title: string; resource_ids: string[] }> {
   if (!Array.isArray(v)) throw new Error("tasks must be an array");
-  const out: Array<{ type: string; title: string }> = [];
+  const out: Array<{ type: string; title: string; resource_ids: string[] }> = [];
   for (const item of v) {
     const o = asObject(item);
-    out.push({ type: asString(o.type, "task.type"), title: asString(o.title, "task.title") });
+    const resourceIdsRaw = o.resource_ids;
+    const resourceIds: string[] = [];
+    if (resourceIdsRaw !== undefined) {
+      if (!Array.isArray(resourceIdsRaw)) throw new Error("task.resource_ids must be an array");
+      for (const x of resourceIdsRaw) {
+        resourceIds.push(asString(x, "task.resource_ids[]"));
+      }
+    }
+    out.push({ type: asString(o.type, "task.type"), title: asString(o.title, "task.title"), resource_ids: resourceIds });
   }
   if (out.length > 25) throw new Error("too many tasks");
   return out;
@@ -79,12 +87,23 @@ export const mealPlanV1: PatchHandler = {
       createdTaskIds.push(task.id);
     }
 
-    for (const taskId of createdTaskIds) {
+    for (let i = 0; i < createdTaskIds.length; i++) {
+      const taskId = createdTaskIds[i]!;
+      const t = tasks[i]!;
+
       await tx.taskSubject.upsert({
-        where: { taskId_subjectType: { taskId, subjectType: "meal.goal" } },
+        where: { taskId_subjectType_subjectId: { taskId, subjectType: "meal.goal", subjectId: goal.id } },
         create: { entityId: ctx.entityId, taskId, subjectType: "meal.goal", subjectId: goal.id },
-        update: { subjectId: goal.id },
+        update: {},
       });
+
+      for (const resourceId of t.resource_ids) {
+        await tx.taskSubject.upsert({
+          where: { taskId_subjectType_subjectId: { taskId, subjectType: "resource", subjectId: resourceId } },
+          create: { entityId: ctx.entityId, taskId, subjectType: "resource", subjectId: resourceId },
+          update: {},
+        });
+      }
     }
 
     await emitOutboxEvent(tx, {

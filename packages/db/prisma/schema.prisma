@@ -94,6 +94,7 @@ model Entity {
   resources   Resource[]
   locations   Location[]
   inventory   InventoryItem[]
+  inventoryMutations InventoryMutation[]
   mealGoals   MealGoal[]
   recipes     Recipe[]
   taskSubjects TaskSubject[]
@@ -115,6 +116,7 @@ model Resource {
 
   inventoryItems InventoryItem[]
   recipeIngredients RecipeIngredient[]
+  inventoryMutations InventoryMutation[]
 
   @@unique([entityId, kind, externalKey])
   @@index([entityId, kind])
@@ -130,6 +132,7 @@ model Location {
   updatedAt DateTime     @updatedAt
 
   items InventoryItem[]
+  inventoryMutations InventoryMutation[]
 
   @@unique([entityId, kind, name])
   @@index([entityId, kind])
@@ -149,9 +152,33 @@ model InventoryItem {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  mutations InventoryMutation[]
+
   @@unique([entityId, resourceId, locationId])
   @@index([entityId, locationId])
   @@index([entityId, resourceId])
+}
+
+model InventoryMutation {
+  id            String   @id @default(uuid())
+  entityId      String
+  entity        Entity   @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  changeSetId   String
+  opIndex       Int
+  resourceId    String
+  resource      Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  locationId    String
+  location      Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  inventoryItemId String
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  delta         Decimal  @db.Decimal(18, 6)
+  unit          String?
+  createdAt     DateTime @default(now())
+
+  @@unique([changeSetId, opIndex])
+  @@index([entityId, createdAt])
+  @@index([entityId, resourceId])
+  @@index([inventoryItemId])
 }
 
 enum MealGoalStatus {
@@ -272,7 +299,8 @@ model TaskSubject {
   subjectId   String
   createdAt   DateTime @default(now())
 
-  @@unique([taskId, subjectType])
+  @@unique([taskId, subjectType, subjectId])
+  @@index([taskId, subjectType])
   @@index([entityId, subjectType, subjectId])
 }
 

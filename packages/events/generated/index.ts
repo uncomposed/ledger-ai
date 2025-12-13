@@ -2,6 +2,7 @@ export const EVENT_TYPES = [
   "changeset.applied.v1",
   "changeset.proposed.v1",
   "entity.created.v1",
+  "inventory.delta.applied.v1",
   "inventory.import_text.applied.v1",
   "lens.run.completed.v1",
   "lens.run.started.v1",

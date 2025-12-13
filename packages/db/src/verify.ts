@@ -41,6 +41,10 @@ async function main() {
     "InventoryItem_entityId_locationId_idx",
     "InventoryItem_entityId_resourceId_idx",
     "InventoryItem_entityId_resourceId_locationId_key",
+    "InventoryMutation_changeSetId_opIndex_key",
+    "InventoryMutation_entityId_createdAt_idx",
+    "InventoryMutation_entityId_resourceId_idx",
+    "InventoryMutation_inventoryItemId_idx",
     "MealGoal_entityId_status_idx",
     "MealGoal_entityId_createdAt_idx",
     "Recipe_entityId_name_key",
@@ -50,7 +54,8 @@ async function main() {
     "RecipeStep_recipeId_stepIndex_key",
     "RecipeStep_recipeId_idx",
     "TaskSubject_entityId_subjectType_subjectId_idx",
-    "TaskSubject_taskId_subjectType_key",
+    "TaskSubject_taskId_subjectType_subjectId_key",
+    "TaskSubject_taskId_subjectType_idx",
   ];
 
   const have = new Set(indexes.map((x) => x.indexname));
