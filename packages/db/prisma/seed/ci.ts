@@ -6,6 +6,18 @@ async function main() {
   const actorId = "00000000-0000-0000-0000-000000000002";
   const correlationId = "seed";
 
+  await prisma.entity.upsert({
+    where: { id: entityId },
+    create: { id: entityId },
+    update: {},
+  });
+
+  await prisma.actor.upsert({
+    where: { id: actorId },
+    create: { id: actorId, type: "system" },
+    update: {},
+  });
+
   await prisma.task.create({
     data: {
       entityId,

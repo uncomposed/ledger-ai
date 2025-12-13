@@ -14,6 +14,9 @@ test("outbox retry does not duplicate event_log rows", async () => {
 
   await prisma.eventLog.deleteMany({});
   await prisma.eventOutbox.deleteMany({});
+  await prisma.entity.deleteMany({});
+
+  await prisma.entity.create({ data: { id: "00000000-0000-0000-0000-000000000001" } });
 
   const outbox = await prisma.eventOutbox.create({
     data: {
@@ -60,6 +63,9 @@ test("crash window after append is safe on retry", async () => {
 
   await prisma.eventLog.deleteMany({});
   await prisma.eventOutbox.deleteMany({});
+  await prisma.entity.deleteMany({});
+
+  await prisma.entity.create({ data: { id: "00000000-0000-0000-0000-000000000001" } });
 
   const outbox = await prisma.eventOutbox.create({
     data: {

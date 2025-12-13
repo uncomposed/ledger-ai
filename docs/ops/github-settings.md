@@ -30,3 +30,7 @@ Enable:
 
 - Secret scanning
 - Push protection for supported secrets
+
+## Toolchain
+
+- Use Node from `.nvmrc` (matches CI).

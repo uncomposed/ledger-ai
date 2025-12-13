@@ -18,11 +18,21 @@ async function resetDb() {
   await prisma.eventOutbox.deleteMany({});
   await prisma.changeSet.deleteMany({});
   await prisma.task.deleteMany({});
+  await prisma.membership.deleteMany({});
+  await prisma.entity.deleteMany({});
+  await prisma.actor.deleteMany({});
+}
+
+async function seedActorsAndEntity() {
+  await prisma.entity.create({ data: { id: ENTITY_ID } });
+  await prisma.actor.create({ data: { id: MEMBER_ID, type: "human" } });
+  await prisma.actor.create({ data: { id: ADMIN_ID, type: "human" } });
 }
 
 test("task -> changeset -> apply emits events and publishes once", async () => {
   mustEnv("DATABASE_URL");
   await resetDb();
+  await seedActorsAndEntity();
 
   const app = buildApp();
   await app.ready();
@@ -106,6 +116,7 @@ test("task -> changeset -> apply emits events and publishes once", async () => {
 test("double submit with stale version returns 409", async () => {
   mustEnv("DATABASE_URL");
   await resetDb();
+  await seedActorsAndEntity();
 
   const app = buildApp();
   await app.ready();
@@ -156,6 +167,7 @@ test("double submit with stale version returns 409", async () => {
 test("unknown fields are rejected by default", async () => {
   mustEnv("DATABASE_URL");
   await resetDb();
+  await seedActorsAndEntity();
 
   const app = buildApp();
   await app.ready();
@@ -175,4 +187,3 @@ test("unknown fields are rejected by default", async () => {
 
   await app.close();
 });
-
