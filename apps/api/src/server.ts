@@ -136,13 +136,14 @@ export function buildApp(opts: { env?: NodeJS.ProcessEnv } = {}) {
     req.actor = await authProvider.entityScopedActorFromRequest(req);
   });
 
-  app.setErrorHandler((err, _req, reply) => {
+  app.setErrorHandler((rawErr, _req, reply) => {
+    const err = rawErr as Error & { validation?: unknown };
     if (err instanceof UnauthorizedError) return reply.status(401).send({ error: "unauthorized", message: err.message });
     if (err instanceof NotFoundError) return reply.status(404).send({ error: "not_found", message: err.message });
     if (err instanceof ForbiddenError) return reply.status(403).send({ error: "forbidden", message: err.message });
     if (err instanceof ConflictError) return reply.status(409).send({ error: "conflict", message: err.message });
     // Fastify validation errors
-    if ((err as any)?.validation) {
+    if (err?.validation) {
       return reply.status(400).send({ error: "bad_request", message: String(err.message ?? "validation failed") });
     }
     const message = env.NODE_ENV === "production" ? "internal error" : String(err?.message ?? err);

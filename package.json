@@ -24,9 +24,7 @@
   },
   "pnpm": {
     "overrides": {
-      "fast-uri@2": "^2.4.8",
-      "fast-uri@3": "^3.1.9",
-      "proxy-addr": "^2.0.8"
+      "fast-uri@3": "^3.1.9"
     }
   }
 }
