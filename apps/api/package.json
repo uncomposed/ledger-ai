@@ -14,8 +14,8 @@
     "@ledger/observability": "workspace:*",
     "@ledger/policy": "workspace:*",
     "@fastify/cors": "^8.5.0",
-    "@aws-sdk/client-s3": "^3.879.0",
-    "@aws-sdk/s3-request-presigner": "^3.879.0",
+    "@aws-sdk/client-s3": "^3.1156.0",
+    "@aws-sdk/s3-request-presigner": "^3.1156.0",
     "fastify": "^4.29.1",
     "jose": "^6.1.0"
   },
