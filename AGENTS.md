@@ -26,7 +26,7 @@ Never add a code path that writes domain data and skips this. No direct `prisma.
 
 ## 3. Setup and verification
 
-Pinned: Node `20.19.0` (`.nvmrc`), pnpm `9.15.0` (`packageManager`). CI uses both. Run from the repo root.
+Pinned: Node `24.22.1` (`.nvmrc`), pnpm `9.15.0` (`packageManager`). CI uses both. Run from the repo root.
 
 ```sh
 pnpm install --frozen-lockfile
