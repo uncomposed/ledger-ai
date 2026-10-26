@@ -42,7 +42,7 @@ Each entity (a person, a household, a business) owns its data. Access is checked
 
 ## Quickstart
 
-Needs Node 20.19.0, pnpm 9.15.0, and Docker for Postgres.
+Needs Node 24.22.1, pnpm 9.15.0, and Docker for Postgres.
 
 ```sh
 pnpm install --frozen-lockfile

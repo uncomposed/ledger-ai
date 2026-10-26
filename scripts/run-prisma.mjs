@@ -22,7 +22,8 @@ async function main() {
   const localEnv = resolve(cwd, ".env");
   if (existsSync(localEnv)) await loadDotEnv(localEnv);
 
-  if (!process.env.DATABASE_URL) {
+  // `prisma generate` reads the schema only; it needs no database URL (CI runs it without one).
+  if (argv[0] !== "generate" && !process.env.DATABASE_URL) {
     console.error("Missing DATABASE_URL (expected in repo root .env or env vars)");
     process.exit(2);
   }

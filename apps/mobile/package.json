@@ -18,7 +18,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@clerk/clerk-expo": "^2.14.6",
+    "@clerk/clerk-expo": "^2.20.2",
     "expo": "~52.0.0",
     "expo-constants": "~17.0.3",
     "expo-linking": "~7.0.5",
